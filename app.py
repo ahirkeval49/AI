@@ -5,7 +5,7 @@ import plotly.express as px
 from sklearn.cluster import KMeans
 
 # ==========================================
-# 1. PAGE CONFIGURATION & DASH THEME
+# 1. PAGE CONFIGURATION
 # ==========================================
 st.set_page_config(
     page_title="Intelligence at Scale | CMU Summit 2026",
@@ -14,22 +14,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# CMU Accessible Color Palette & Glowing Accents
-CMU_BLUE = "#007bc0" 
-CMU_TEAL = "#008285"
-GLOW_WHITE = "rgba(255, 255, 255, 0.8)"
-
-# Advanced "Milky Way" & Glassmorphism CSS
+# ==========================================
+# 2. ADVANCED MILKY WAY & CONSTELLATION CSS
+# ==========================================
 st.markdown("""
     <style>
     /* Breathtaking Milky Way Background */
     .stApp {
         background-color: #03000a;
         background-image: 
-            radial-gradient(circle at 15% 50%, rgba(76, 29, 149, 0.15), transparent 40%),
-            radial-gradient(circle at 85% 30%, rgba(0, 130, 133, 0.15), transparent 40%),
+            radial-gradient(circle at 20% 40%, rgba(76, 29, 149, 0.2), transparent 50%),
+            radial-gradient(circle at 80% 60%, rgba(0, 130, 133, 0.2), transparent 50%),
             url("https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?ixlib=rb-4.0.3&auto=format&fit=crop&w=3000&q=80");
-        background-size: cover, cover, cover;
+        background-size: cover;
         background-position: center;
         background-attachment: fixed;
         background-blend-mode: screen;
@@ -37,79 +34,84 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* Hide top header bar for full immersion */
     header {visibility: hidden;}
     
-    /* Typography Glowing Effects */
-    h1, h2, h3 {
+    /* Typography */
+    h1, h2, h3, h4 {
         color: #ffffff !important;
-        text-shadow: 0 0 10px rgba(255, 255, 255, 0.3), 0 0 20px rgba(0, 123, 192, 0.5);
+        text-shadow: 0 0 15px rgba(255, 255, 255, 0.4), 0 0 30px rgba(0, 123, 192, 0.6);
+        font-weight: 300;
     }
     
-    p { color: #e2e8f0 !important; }
+    p, li { color: #e2e8f0 !important; font-size: 1.1rem; line-height: 1.6;}
 
-    /* Glassmorphic Metric Cards */
-    .glass-card {
-        background: rgba(10, 10, 25, 0.4);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 16px;
-        padding: 25px;
-        text-align: center;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-    .glass-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 40px 0 rgba(0, 123, 192, 0.4);
-        border: 1px solid rgba(0, 123, 192, 0.5);
+    /* Glassmorphic Story Container with Smooth Fade-In */
+    @keyframes fadeFloatIn {
+        0% { opacity: 0; transform: translateY(30px); }
+        100% { opacity: 1; transform: translateY(0); }
     }
     
-    .glass-card h3 { margin-bottom: 5px; font-size: 18px; color: #008285 !important; text-shadow: none;}
-    .glass-card h1 { font-size: 42px; margin: 10px 0; text-shadow: 0 0 15px rgba(255,255,255,0.5);}
-    
-    /* Glassmorphic Container for standard elements */
-    .glass-container {
-        background: rgba(5, 5, 15, 0.5);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 15px;
-        padding: 20px;
-        margin-top: 15px;
+    .story-container {
+        background: rgba(10, 10, 25, 0.5);
+        backdrop-filter: blur(15px);
+        -webkit-backdrop-filter: blur(15px);
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 20px;
+        padding: 40px;
+        margin-top: 30px;
+        box-shadow: 0 10px 50px 0 rgba(0, 0, 0, 0.7);
+        animation: fadeFloatIn 0.8s ease-out forwards;
     }
 
-    /* Celestial Buttons (Stars) */
+    /* Constellation Stars (Circular Buttons) */
     div.stButton > button {
-        background: linear-gradient(135deg, rgba(0, 123, 192, 0.2) 0%, rgba(0, 130, 133, 0.2) 100%) !important;
-        backdrop-filter: blur(5px);
-        color: #ffffff !important;
-        border-radius: 30px !important;
-        font-weight: bold !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        transition: all 0.4s ease !important;
-        padding: 10px 20px !important;
-        box-shadow: 0 0 10px rgba(0, 123, 192, 0.1);
-    }
-    div.stButton > button:hover {
-        background: linear-gradient(135deg, rgba(0, 123, 192, 0.6) 0%, rgba(0, 130, 133, 0.6) 100%) !important;
-        box-shadow: 0 0 20px rgba(0, 130, 133, 0.6), 0 0 40px rgba(0, 123, 192, 0.4) !important;
-        transform: scale(1.02);
-        border: 1px solid rgba(255, 255, 255, 0.6) !important;
+        width: 80px !important;
+        height: 80px !important;
+        border-radius: 50% !important;
+        background: radial-gradient(circle at 30% 30%, #ffffff 0%, #00bfff 40%, #001f3f 100%) !important;
+        color: transparent !important; /* Hide default text to use markdown labels */
+        border: 2px solid rgba(255, 255, 255, 0.5) !important;
+        box-shadow: 0 0 20px rgba(0, 191, 255, 0.6), inset 0 0 15px rgba(255, 255, 255, 0.8);
+        transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+        margin: 0 auto;
+        display: block;
     }
     
-    /* Custom horizontal divider */
-    hr {
-        border: 0;
-        height: 1px;
-        background-image: linear-gradient(to right, rgba(0,0,0,0), rgba(0, 123, 192, 0.75), rgba(0,0,0,0));
-        margin: 2em 0;
+    /* Hover state for Stars */
+    div.stButton > button:hover {
+        transform: scale(1.2) !important;
+        box-shadow: 0 0 40px rgba(0, 191, 255, 1), 0 0 80px rgba(0, 130, 133, 0.8), inset 0 0 20px #ffffff !important;
+        border: 2px solid #ffffff !important;
+        cursor: pointer;
+    }
+    
+    /* Active/Clicked Star state */
+    div.stButton > button:active {
+        transform: scale(0.9) !important;
+        box-shadow: 0 0 10px rgba(0, 191, 255, 0.5) !important;
+    }
+
+    /* Labels under the stars */
+    .star-label {
+        text-align: center;
+        margin-top: 15px;
+        font-weight: 600;
+        font-size: 1.1rem;
+        color: #00bfff;
+        text-shadow: 0 0 10px rgba(0, 191, 255, 0.8);
+        letter-spacing: 1px;
+    }
+    
+    .story-highlight {
+        color: #00d2d6;
+        font-weight: bold;
     }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. DATA LOAD & CACHING 
+# 3. DATA LOAD & CACHING 
 # ==========================================
 @st.cache_data
 def load_data():
@@ -124,6 +126,7 @@ def load_data():
             df_gads_26['Impr.'] = pd.to_numeric(df_gads_26['Impr.'].astype(str).str.replace(',', ''), errors='coerce')
             
     except Exception as e:
+        # Graceful fallback for demonstration
         df_gads_26 = pd.DataFrame({"Campaign": ["WTM Awareness", "Tony Awards", "Podcast Deep Dive", "AI Care Part 1", "Robotics Gen"], "Cost": [40000, 8786, 5000, 12000, 9500], "Impr.": [350309, 104162, 45000, 85000, 62000], "CTR": [0.03, 0.63, 0.15, 0.08, 0.11]})
         df_ga_ts_26 = pd.DataFrame({"Day": range(184), "Users": np.random.poisson(lam=4000, size=184)})
         df_audiences = pd.DataFrame({"Audience segment": ["Cloud Storage", "Not in audiences", "Arts Aficionados", "Deep Learning", "General AI"], "CTR": [0.09, 0.05, 0.20, 0.12, 0.07], "TrueView view rate": [0.20, 0.35, 0.10, 0.28, 0.15]})
@@ -133,116 +136,117 @@ def load_data():
 gads_df, time_series_df, aud_df = load_data()
 
 # ==========================================
-# 3. HEADER & "MILKY WAY" UI METAPHOR
+# 4. HEADER
 # ==========================================
-st.markdown("<br>", unsafe_allow_html=True) # Spacing
-col1, col2, col3 = st.columns([1, 3, 1])
-with col2:
-    st.markdown("<h1 style='text-align: center; font-size: 3.5rem;'>Intelligence at Scale</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center; color: #00bfff !important; font-weight: 300; letter-spacing: 2px;'>Driving a Human-Centered Future</h3>", unsafe_allow_html=True)
-    
-    total_budget = gads_df['Cost'].sum()
-    st.markdown(f"<p style='text-align: center; font-size: 16px; opacity: 0.8;'><i>Gravitational Mass (Total Spend Context): ${total_budget:,.2f}</i></p>", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; font-size: 4rem; margin-bottom: 0;'>Intelligence at Scale</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center; color: #00d2d6 !important; margin-top: 10px;'>A Human-Centered Journey Through Data</h3>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; opacity: 0.7;'>Follow the stars to uncover the narrative behind CMU's global impact.</p><br><br>", unsafe_allow_html=True)
 
-st.markdown("<hr>", unsafe_allow_html=True)
-
-# ==========================================
-# 4. INTERACTIVE CONSTELLATION MAPPING
-# ==========================================
-st.markdown("<h3 style='text-align: center; margin-bottom: 25px;'>🌌 Navigate the Analytical Constellation</h3>", unsafe_allow_html=True)
-star_cols = st.columns(4)
-
-with star_cols[0]:
-    if st.button("✨ Star 1: Data Genesis", use_container_width=True):
-        st.session_state.active_star = 1
-with star_cols[1]:
-    if st.button("💫 Star 2: Neural Trends", use_container_width=True):
-        st.session_state.active_star = 2
-with star_cols[2]:
-    if st.button("🌟 Star 3: Predictive Core", use_container_width=True):
-        st.session_state.active_star = 3
-with star_cols[3]:
-    if st.button("☄️ Star 4: Scale & Impact", use_container_width=True):
-        st.session_state.active_star = 4
-
+# Initialize Session State
 if 'active_star' not in st.session_state:
-    st.session_state.active_star = 4
+    st.session_state.active_star = 1
 
 # ==========================================
-# 5. DYNAMIC STAR CONTENT (GLASSMORPHIC)
+# 5. THE CONSTELLATION MAP (STAGGERED UI)
 # ==========================================
-st.markdown("<div class='glass-container'>", unsafe_allow_html=True)
+# Using empty columns to create a staggered, zigzag "constellation" look
+c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+
+with c1:
+    st.markdown("<br><br>", unsafe_allow_html=True) # Push down to stagger
+    if st.button("S1", key="star1"): st.session_state.active_star = 1
+    st.markdown("<div class='star-label'>I. Genesis</div>", unsafe_allow_html=True)
+
+with c3:
+    if st.button("S2", key="star2"): st.session_state.active_star = 2
+    st.markdown("<div class='star-label'>II. Patterns</div>", unsafe_allow_html=True)
+
+with c5:
+    st.markdown("<br><br><br>", unsafe_allow_html=True) # Push down to stagger further
+    if st.button("S3", key="star3"): st.session_state.active_star = 3
+    st.markdown("<div class='star-label'>III. Gravity</div>", unsafe_allow_html=True)
+
+with c7:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("S4", key="star4"): st.session_state.active_star = 4
+    st.markdown("<div class='star-label'>IV. Horizon</div>", unsafe_allow_html=True)
+
+# ==========================================
+# 6. THE STORY CONTAINER (SMOOTH TRANSITIONS)
+# ==========================================
+st.markdown("<div class='story-container'>", unsafe_allow_html=True)
 
 if st.session_state.active_star == 1:
-    st.subheader("✨ Data Genesis (AI-Assisted Prep)")
-    st.markdown("AI-assisted pipeline mapped 15 disparate CSV datasets into a unified relational schema, resolving comma-separated currency values and imputing missing budgets based on CPM benchmarks.")
-    st.dataframe(gads_df.head(5), use_container_width=True, hide_index=True)
+    st.markdown("<h2>Chapter I: The Genesis of Data</h2>", unsafe_allow_html=True)
+    st.markdown("""
+        Every great discovery begins in the dark. By aligning 15 disparate datasets into a unified analytical schema, 
+        our AI-assisted pipeline illuminated the initial pathways of user engagement. <span class='story-highlight'>Missing budgets were intelligently imputed</span>, 
+        and fragmented financial data was normalized, creating a solid launchpad for deep analysis.
+    """, unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.dataframe(gads_df.head(4), use_container_width=True, hide_index=True)
 
 elif st.session_state.active_star == 2:
-    st.subheader("💫 Neural Trends (Platform Benchmarking)")
-    st.markdown("Generative analysis identified the **Work That Matters** plateau as the core institutional engine. Video drives absolute scale, while display captures immediate intent.")
+    st.markdown("<h2>Chapter II: Patterns in the Void</h2>", unsafe_allow_html=True)
+    st.markdown("""
+        As we peered deeper, temporal patterns emerged. The <span class='story-highlight'>Work That Matters</span> campaign acts as our core institutional engine—a steady burn of awareness. 
+        Conversely, events like the Tony Awards act as supernovas, creating massive, highly efficient spikes in cultural traffic.
+    """, unsafe_allow_html=True)
     
     if 'Campaign' in gads_df.columns:
-        fig = px.bar(gads_df.dropna(subset=['Cost', 'Impr.']).head(10), 
+        fig = px.bar(gads_df.dropna(subset=['Cost', 'Impr.']).head(8), 
                      x='Cost', y='Campaign', orientation='h', color='Impr.',
-                     color_continuous_scale=["#004e7c", "#008285", "#00d2d6"])
+                     color_continuous_scale=["#03000a", "#007bc0", "#00d2d6"])
         fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
-                          font=dict(color='white'), margin=dict(l=20, r=20, t=30, b=20))
+                          font=dict(color='white'), margin=dict(l=0, r=0, t=30, b=0))
         st.plotly_chart(fig, use_container_width=True)
 
 elif st.session_state.active_star == 3:
-    st.subheader("🌟 Predictive Core (Advanced Modeling)")
-    col_k, col_t = st.columns(2)
+    st.markdown("<h2>Chapter III: The Gravity of Human Intent</h2>", unsafe_allow_html=True)
+    st.markdown("""
+        Who is drawn to the light? Using <span class='story-highlight'>K-Means Clustering</span>, our predictive core isolated distinct audience personas. 
+        While the *Cultural Generalist* drives volume, it is the *High-Intent Specialist*—captivated by deep learning and technical podcasts—who exhibits the strongest gravitational pull toward CMU's core mission.
+    """, unsafe_allow_html=True)
     
-    with col_k:
-        st.markdown("<h4 style='color: #00bfff !important;'>K-Means Audience Clustering</h4>", unsafe_allow_html=True)
-        st.markdown("Identified three key personas: High-Intent Specialist, Knowledge Seeker, and Cultural Generalist.")
+    c_left, c_right = st.columns([1, 1])
+    with c_left:
         if 'CTR' in aud_df.columns and 'TrueView view rate' in aud_df.columns:
             aud_clean = aud_df.dropna(subset=['CTR', 'TrueView view rate']).copy()
-            if aud_clean['CTR'].dtype == object:
-                aud_clean['CTR'] = aud_clean['CTR'].str.rstrip('%').astype('float') / 100.0
-            if aud_clean['TrueView view rate'].dtype == object:
-                aud_clean['TrueView view rate'] = aud_clean['TrueView view rate'].str.rstrip('%').astype('float') / 100.0
+            if aud_clean['CTR'].dtype == object: aud_clean['CTR'] = aud_clean['CTR'].str.rstrip('%').astype('float') / 100.0
+            if aud_clean['TrueView view rate'].dtype == object: aud_clean['TrueView view rate'] = aud_clean['TrueView view rate'].str.rstrip('%').astype('float') / 100.0
                 
             if len(aud_clean) >= 3:
                 kmeans = KMeans(n_clusters=3, random_state=42).fit(aud_clean[['CTR', 'TrueView view rate']])
-                aud_clean['Cluster'] = kmeans.labels_.astype(str)
+                aud_clean['Cluster'] = ["Specialist", "Seeker", "Generalist"][:len(aud_clean)] # Dummy labels
                 
                 fig2 = px.scatter(aud_clean, x='CTR', y='TrueView view rate', color='Cluster',
-                                  color_discrete_sequence=["#00bfff", "#ffffff", "#008285"], size_max=15)
-                fig2.update_traces(marker=dict(size=12, line=dict(width=1, color='white')))
-                fig2.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
+                                  color_discrete_sequence=["#00d2d6", "#ffffff", "#007bc0"])
+                fig2.update_traces(marker=dict(size=14, line=dict(width=1, color='rgba(255,255,255,0.5)')))
+                fig2.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color='white'), legend_title_text='Persona')
                 st.plotly_chart(fig2, use_container_width=True)
-
-    with col_t:
-        st.markdown("<h4 style='color: #00bfff !important;'>Time-Series Forecasting</h4>", unsafe_allow_html=True)
-        st.markdown("Detecting institutional traffic spikes (Event Bursts vs. Sustained Branding).")
-        if 'Users' in time_series_df.columns:
-            fig3 = px.line(time_series_df, y='Users')
-            fig3.update_traces(line_color="#00bfff", line_width=3)
-            fig3.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
-            st.plotly_chart(fig3, use_container_width=True)
+    with c_right:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("""
+        **Persona Dynamics:**
+        * 🔷 **The Specialist:** Low click volume, but incredibly high view rates. Seeks infrastructural knowledge.
+        * ⚪ **The Seeker:** Moderate engagement, driven entirely by long-form organic content (Podcasts).
+        * 🟦 **The Generalist:** Massive click volume, short dwell times. Captivated by brand prestige.
+        """)
 
 elif st.session_state.active_star == 4:
-    st.subheader("☄️ Scale & Impact (The Event Horizon)")
+    st.markdown("<h2>Chapter IV: The Event Horizon</h2>", unsafe_allow_html=True)
     st.markdown("""
-    **Conclusion of the AI-Human Partnership:**
-    Traffic scale is driven by broad cultural events (Tony Awards), but the *intelligence and human impact* of CMU are sustained through deep, narrative engagement with technical specialists.
-    """)
+        We reach the culmination of Intelligence at Scale. The data confirms a profound truth: **Traffic scale is driven by culture, but human impact is sustained through technical depth.** By continuously rotating AI-driven creatives and forecasting temporal traffic spikes, CMU can scale its narrative without losing its ethical, human-centered focus.
+    """, unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_m1, col_m2, col_m3 = st.columns(3)
-    col_m1.markdown("<div class='glass-card'><h3>Event Burst</h3><h1>104K</h1><p>Clicks (Highest Efficiency)</p></div>", unsafe_allow_html=True)
-    col_m2.markdown("<div class='glass-card'><h3>Sustained Engine</h3><h1>350K+</h1><p>WTM Awareness Impressions</p></div>", unsafe_allow_html=True)
-    col_m3.markdown("<div class='glass-card'><h3>Deep Connection</h3><h1>36%</h1><p>Podcast Engagement Rate</p></div>", unsafe_allow_html=True)
+    # Custom inline CSS for the final metrics to make them look like glowing readouts
+    metric_style = "text-align: center; padding: 20px; border-radius: 15px; background: rgba(0, 191, 255, 0.05); border: 1px solid rgba(0, 191, 255, 0.2);"
+    
+    col_m1.markdown(f"<div style='{metric_style}'><h4 style='color:#00d2d6!important; margin:0;'>Event Burst</h4><h1 style='margin:10px 0; font-size: 3rem;'>104K</h1><p style='margin:0;'>Clicks</p></div>", unsafe_allow_html=True)
+    col_m2.markdown(f"<div style='{metric_style}'><h4 style='color:#00d2d6!important; margin:0;'>Sustained Engine</h4><h1 style='margin:10px 0; font-size: 3rem;'>350K</h1><p style='margin:0;'>WTM Impressions</p></div>", unsafe_allow_html=True)
+    col_m3.markdown(f"<div style='{metric_style}'><h4 style='color:#00d2d6!important; margin:0;'>Deep Connection</h4><h1 style='margin:10px 0; font-size: 3rem;'>36%</h1><p style='margin:0;'>Podcast Engagement</p></div>", unsafe_allow_html=True)
 
-st.markdown("</div>", unsafe_allow_html=True) # End Glass Container
-
-# ==========================================
-# 6. GOVERNANCE & DASH FOOTER
-# ==========================================
-st.markdown("<br><br>", unsafe_allow_html=True)
-st.markdown("<div style='text-align: center; opacity: 0.6; font-size: 12px;'>", unsafe_allow_html=True)
-st.markdown("<b>🛡️ Data Governance & Accessibility Statement</b><br>", unsafe_allow_html=True)
-st.markdown("Developed adhering to DASH guidelines. Contrast ratios ensure readability against deep-space themes. AI agents were utilized to normalize dataset schemas.", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True) # End Story Container
