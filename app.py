@@ -230,8 +230,8 @@ if current_page == "home":
             controls.autoRotate = true; 
             controls.autoRotateSpeed = 0.5;
 
-            // 1. CMU Brand Particle Galaxy
-            const pCount = 10000;
+            // 1. CMU Brand Particle Galaxy (INCREASED COUNT)
+            const pCount = 35000;
             const pGeo = new THREE.BufferGeometry();
             const pos = new Float32Array(pCount * 3);
             const colors = new Float32Array(pCount * 3);
@@ -265,8 +265,8 @@ if current_page == "home":
             const particleSystem = new THREE.Points(pGeo, pMat);
             scene.add(particleSystem);
 
-            // 2. Custom Mascot Image Particles
-            const mascotCount = 150;
+            // 2. Custom Mascot Image Particles (INCREASED COUNT)
+            const mascotCount = 350;
             const mGeo = new THREE.BufferGeometry();
             const mPos = new Float32Array(mascotCount * 3);
             for(let i=0; i<mascotCount; i++) {
