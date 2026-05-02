@@ -10,7 +10,6 @@ import tempfile
 import os
 from urllib.parse import urlparse, parse_qs
 
-# Streamlit Extras for premium UI
 from streamlit_extras.colored_header import colored_header
 from streamlit_extras.metric_cards import style_metric_cards
 from streamlit_extras.dataframe_explorer import dataframe_explorer
@@ -20,13 +19,79 @@ from streamlit_extras.dataframe_explorer import dataframe_explorer
 # ---------------------------------------------------------
 st.set_page_config(page_title="CMU AI Nexus", layout="wide", initial_sidebar_state="collapsed")
 
-# Routing Logic: Read URL parameters to know which page to render
+# Routing Logic
 if "page" not in st.query_params:
     st.query_params["page"] = "home"
 current_page = st.query_params["page"]
 
 # ---------------------------------------------------------
-# 2. GLOBAL DATA PROCESSING LOGIC
+# 2. GLOBAL CUSTOM UI: TOP-LEFT RADIAL MENU (STAYS OPEN)
+# ---------------------------------------------------------
+# If we are not on the home page, force the menu to stay open
+menu_checked_state = "checked" if current_page != "home" else ""
+
+radial_menu_html = f"""
+<style>
+    /* Fixed globally to the top-left, avoiding Streamlit's default header */
+    .radial-nav {{ position: fixed; top: 40px; left: 20px; z-index: 9999999; }}
+    
+    #menu-toggle {{ display: none; }}
+    
+    .menu-button {{
+        width: 60px; height: 60px; background-color: #C41230; color: white;
+        border-radius: 50%; display: flex; justify-content: center; align-items: center;
+        font-size: 28px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        position: relative; z-index: 20; transition: transform 0.3s ease;
+        border: 2px solid #FFF; font-family: sans-serif;
+    }}
+    
+    .menu-label {{
+        position: absolute; top: 20px; left: 80px; width: 250px;
+        color: #C41230; font-family: sans-serif; font-size: 14px; font-weight: bold;
+        pointer-events: none; transition: opacity 0.3s;
+    }}
+    
+    /* When checked, rotate the button and hide the label */
+    #menu-toggle:checked ~ .menu-button {{ transform: rotate(45deg); background-color: #222; }}
+    #menu-toggle:checked ~ .menu-label {{ opacity: 0; }}
+    
+    .menu-item {{
+        position: absolute; top: 5px; left: 5px; width: 50px; height: 50px;
+        background-color: #333; color: white; border-radius: 50%;
+        display: flex; justify-content: center; align-items: center;
+        font-size: 9px; text-decoration: none; font-weight: bold; font-family: sans-serif;
+        opacity: 0; transform: scale(0); transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid #555; z-index: 10;
+    }}
+    
+    .menu-item:hover {{ background-color: #C41230; border-color: white; transform: scale(1.1) !important; color: white;}}
+
+    /* Fan out positions when checked (Fanning down and to the right) */
+    #menu-toggle:checked ~ .item-1 {{ opacity: 1; transform: translate(70px, 0px) scale(1); }}
+    #menu-toggle:checked ~ .item-2 {{ opacity: 1; transform: translate(60px, 55px) scale(1); }}
+    #menu-toggle:checked ~ .item-3 {{ opacity: 1; transform: translate(25px, 90px) scale(1); }}
+    #menu-toggle:checked ~ .item-4 {{ opacity: 1; transform: translate(-25px, 90px) scale(1); }}
+    #menu-toggle:checked ~ .item-5 {{ opacity: 1; transform: translate(-60px, 55px) scale(1); }}
+    #menu-toggle:checked ~ .item-6 {{ opacity: 1; transform: translate(0px, 125px) scale(1); }}
+</style>
+
+<div class="radial-nav">
+    <input type="checkbox" id="menu-toggle" {menu_checked_state}>
+    <label for="menu-toggle" class="menu-button">✦</label>
+    <div class="menu-label">Toggle to explore tabs ⭢</div>
+    
+    <a href="?page=home" target="_self" class="menu-item item-1">HOME</a>
+    <a href="?page=explorer" target="_self" class="menu-item item-2">EXPLORE</a>
+    <a href="?page=cleaner" target="_self" class="menu-item item-3">CLEAN</a>
+    <a href="?page=analysis" target="_self" class="menu-item item-4">STATS</a>
+    <a href="?page=dashboard" target="_self" class="menu-item item-5">DASH</a>
+    <a href="?page=graph" target="_self" class="menu-item item-6">GRAPH</a>
+</div>
+"""
+st.markdown(radial_menu_html, unsafe_allow_html=True)
+
+# ---------------------------------------------------------
+# 3. GLOBAL DATA PROCESSING LOGIC
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -40,21 +105,16 @@ ALL_FILES = [
 @st.cache_data
 def load_raw_file(filename):
     try:
-        # Assessment Fix: Skip malformed headers on GA UTM files
         skip = 1 if 'UTM_Totals' in filename else 0
         df = pd.read_csv(f'data/{filename}', skiprows=skip)
-        
-        # Assessment Fix: Header Deduplication (Pandas adds .1 to dupes)
         duplicate_cols = [c for c in df.columns if c.endswith('.1')]
         if duplicate_cols:
             df = df.drop(columns=duplicate_cols)
-            
         return df
     except Exception as e:
         return pd.DataFrame({'Error': [f"Could not load {filename}: {str(e)}"]})
 
 def extract_utm_campaign(url):
-    """Assessment Fix: Extracts utm_campaign from URLs to fill incomplete Index mappings"""
     try:
         parsed = urlparse(str(url))
         return parse_qs(parsed.query).get('utm_campaign', [np.nan])[0]
@@ -63,7 +123,6 @@ def extract_utm_campaign(url):
 
 @st.cache_data
 def build_master_models():
-    # 1. Load & Combine Multi-Year Files
     index_df = load_raw_file("UCM Campaign Index.csv")
     ga_utm = pd.concat([load_raw_file("GA_FY25_UTM_Totals_Jul2024-Jun2025.csv"), load_raw_file("GA_FY26_UTM_Totals_Jul-Dec2025.csv")], ignore_index=True)
     ga_time = pd.concat([load_raw_file("GA_FY25_TimeSeries (1).csv"), load_raw_file("GA_FY26_TimeSeries.csv")], ignore_index=True)
@@ -73,21 +132,18 @@ def build_master_models():
     if 'Error' in index_df.columns:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    # 2. Assessment Fix: Missing Index Mappings (URL Parsing)
     if 'UTM campaign' in index_df.columns and 'Landing Page (UTM)' in index_df.columns:
         index_df['UTM campaign'] = index_df['UTM campaign'].fillna(index_df['Landing Page (UTM)'].apply(extract_utm_campaign))
         index_df['utm_clean'] = index_df['UTM campaign'].astype(str).str.lower().str.strip()
 
-    # 3. Assessment Fix: GA TimeSeries Wide-to-Long Reshaping & Zero Handling
     if 'Session campaign' in ga_time.columns:
         melted_ga = pd.melt(ga_time, id_vars=['Session campaign', 'Segment'], var_name='Day', value_name='User_Count')
         melted_ga['Day_Number'] = melted_ga['Day'].str.extract(r'(\d+)').astype(float)
         melted_ga['User_Count'] = pd.to_numeric(melted_ga['User_Count'], errors='coerce').fillna(0)
-        melted_ga = melted_ga[melted_ga['User_Count'] > 0] # Filter zero inflation
+        melted_ga = melted_ga[melted_ga['User_Count'] > 0]
     else:
         melted_ga = pd.DataFrame()
 
-    # 4. Assessment Fix: GAds Data Type Mismatches & Sentinels
     gads_perf.replace('--', np.nan, inplace=True)
     if 'Ad name' in gads_perf.columns:
         gads_perf = gads_perf[~gads_perf['Ad name'].astype(str).str.contains('Total', case=False, na=False)]
@@ -95,13 +151,11 @@ def build_master_models():
         if col in gads_perf.columns:
             gads_perf[col] = pd.to_numeric(gads_perf[col].astype(str).str.replace(r'[,\%\$]', '', regex=True), errors='coerce')
 
-    # 5. Assessment Fix: LinkedIn High Column Cardinality
     if len(linkedin_perf) > 0 and 'Error' not in linkedin_perf.columns:
         linkedin_clean = linkedin_perf.dropna(thresh=len(linkedin_perf) * 0.2, axis=1)
     else:
         linkedin_clean = linkedin_perf
 
-    # 6. Master Merge
     ga_agg = pd.DataFrame(columns=['utm_clean', 'Total_Website_Users', 'Average_Engagement_Rate'])
     if 'Session campaign' in ga_utm.columns:
         ga_utm['utm_clean'] = ga_utm['Session campaign'].astype(str).str.lower().str.strip()
@@ -131,98 +185,51 @@ def build_master_models():
 index_df, ga_utm, melted_ga, gads_perf, linkedin_clean, master_df = build_master_models()
 
 # ---------------------------------------------------------
-# 3. VIEW RENDERING (ROUTING)
+# 4. VIEW RENDERING (ROUTING)
 # ---------------------------------------------------------
 
 # ======================= PAGE: 3D HOME =======================
 if current_page == "home":
-    # 3D Canvas + Integrated Radial Menu to prevent iframe click issues
+    st.markdown("<h1 style='text-align: center; color: #C41230; margin-top: 20px; font-weight: 800;'>CMU Data Nexus</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #888;'>Drag to rotate camera. <b>Click the orbiting nodes</b> to enter the data tabs.</p>", unsafe_allow_html=True)
+    
+    # 3D Iframe with `target="_top"` click fix built into the Raycaster
     cmu_3d_portal = """
     <!DOCTYPE html>
     <html>
     <head>
-        <style> 
-            body { margin: 0; overflow: hidden; background-color: #0A0A0A; font-family: sans-serif; border-radius: 10px; } 
-            
-            /* Centered Clickable Radial Menu */
-            .nav-wrapper {
-                position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
-                z-index: 999; width: 70px; height: 70px;
-            }
-            #menu-toggle { display: none; }
-            .menu-button {
-                width: 70px; height: 70px; background-color: #C41230; color: white;
-                border-radius: 50%; display: flex; justify-content: center; align-items: center;
-                font-size: 28px; cursor: pointer; box-shadow: 0 4px 20px rgba(196, 18, 48, 0.4);
-                position: relative; z-index: 20; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
-                border: 2px solid #FFF;
-            }
-            #menu-toggle:checked ~ .menu-button { transform: rotate(45deg); background-color: #222;}
-            
-            .menu-item {
-                position: absolute; top: 10px; left: 10px; width: 50px; height: 50px;
-                background-color: #222; color: white; border-radius: 50%;
-                display: flex; justify-content: center; align-items: center;
-                font-size: 10px; text-decoration: none; font-weight: bold;
-                opacity: 0; transform: scale(0); transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid #555; z-index: 10;
-            }
-            .menu-item:hover { background-color: #C41230; border-color: white; transform: scale(1.1) !important;}
-
-            /* Fan out positions when checked */
-            #menu-toggle:checked ~ .item-1 { opacity: 1; transform: translate(-140px, -20px) scale(1); }
-            #menu-toggle:checked ~ .item-2 { opacity: 1; transform: translate(-85px, -90px) scale(1); }
-            #menu-toggle:checked ~ .item-3 { opacity: 1; transform: translate(0px, -120px) scale(1); }
-            #menu-toggle:checked ~ .item-4 { opacity: 1; transform: translate(85px, -90px) scale(1); }
-            #menu-toggle:checked ~ .item-5 { opacity: 1; transform: translate(140px, -20px) scale(1); }
-
-            .hint-text {
-                position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%);
-                color: #888; font-size: 13px; white-space: nowrap; pointer-events: none; font-weight: bold;
-                letter-spacing: 1px;
-            }
-        </style>
+        <style> body { margin: 0; overflow: hidden; background-color: #0A0A0A; border-radius: 10px; } </style>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     </head>
     <body>
-        
-        <div class="nav-wrapper">
-            <input type="checkbox" id="menu-toggle">
-            <label for="menu-toggle" class="menu-button">✦</label>
-            <a href="?page=explorer" target="_parent" class="menu-item item-1">EXPLORE</a>
-            <a href="?page=cleaner" target="_parent" class="menu-item item-2">CLEAN</a>
-            <a href="?page=analysis" target="_parent" class="menu-item item-3">STATS</a>
-            <a href="?page=dashboard" target="_parent" class="menu-item item-4">DASH</a>
-            <a href="?page=graph" target="_parent" class="menu-item item-5">GRAPH</a>
-            <div class="hint-text">CLICK TO EXPAND MENU</div>
-        </div>
-
         <script>
             const scene = new THREE.Scene();
             scene.fog = new THREE.FogExp2(0x0A0A0A, 0.02);
 
+            // Container for proper raycasting
+            const container = document.body;
             const camera = new THREE.PerspectiveCamera(60, window.innerWidth / 650, 0.1, 1000);
             const renderer = new THREE.WebGLRenderer({alpha: true, antialias: true});
             renderer.setSize(window.innerWidth, 650);
-            document.body.appendChild(renderer.domElement);
+            container.appendChild(renderer.domElement);
             
             const controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 1.5;
+            controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 1.0;
 
             // Lighting
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
             scene.add(ambientLight);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
             dirLight.position.set(5, 10, 5);
             scene.add(dirLight);
 
-            // 1. Build the 3D CMU Letters
+            // 1. Build the 3D CMU Block Letters
             const blockGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
             const blockMat = new THREE.MeshStandardMaterial({ color: 0xC41230, roughness: 0.2, metalness: 0.5 });
             const cmuGroup = new THREE.Group();
 
-            // Coordinates for block letters C-M-U
+            // Block coordinates for C-M-U
             const coords = [
                 // C
                 [0,0],[1,0],[2,0],[3,0],
@@ -249,24 +256,24 @@ if current_page == "home":
             });
             scene.add(cmuGroup);
 
-            // 2. Add Orbiting Interactive Nodes
+            // 2. Add 5 Orbiting Clickable Nodes
             const agents = [];
             const sphereGeo = new THREE.SphereGeometry(0.6, 32, 32);
             const nodesConfig = [
-                { color: 0xE2C044, url: "?page=explorer" }, 
-                { color: 0xE87A5D, url: "?page=cleaner" },  
-                { color: 0x44BBA4, url: "?page=analysis" }, 
-                { color: 0x00A6D6, url: "?page=dashboard" }, 
-                { color: 0x9B5DE5, url: "?page=graph" }     
+                { color: 0xE2C044, url: "?page=explorer" }, // Yellow: Explorer
+                { color: 0xE87A5D, url: "?page=cleaner" },  // Orange: Cleaner
+                { color: 0x44BBA4, url: "?page=analysis" }, // Green: Stats
+                { color: 0x00A6D6, url: "?page=dashboard" }, // Blue: Dashboard
+                { color: 0x9B5DE5, url: "?page=graph" }     // Purple: Graph
             ];
 
             nodesConfig.forEach((config, index) => {
-                const mat = new THREE.MeshStandardMaterial({color: config.color, emissive: config.color, emissiveIntensity: 0.4});
+                const mat = new THREE.MeshStandardMaterial({color: config.color, emissive: config.color, emissiveIntensity: 0.3});
                 const mesh = new THREE.Mesh(sphereGeo, mat);
                 const angle = (index / 5) * Math.PI * 2;
                 const radius = 6;
                 mesh.position.set(Math.cos(angle) * radius, Math.sin(angle) * 2, Math.sin(angle) * radius);
-                mesh.userData = { url: config.url, angle: angle, radius: radius };
+                mesh.userData = { url: config.url, angle: angle };
                 scene.add(mesh); 
                 agents.push(mesh);
             });
@@ -274,29 +281,34 @@ if current_page == "home":
             camera.position.z = 12;
             camera.position.y = 2;
 
-            // 3. Fix Streamlit iframe Clicks using target='_parent' programmatic simulation
+            // 3. The `target="_top"` Raycaster Fix
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
 
+            function getMousePos(event) {
+                const rect = renderer.domElement.getBoundingClientRect();
+                mouse.x = ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1;
+                mouse.y = - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1;
+            }
+
             window.addEventListener('pointerdown', (event) => {
-                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(event.clientY / 650) * 2 + 1;
+                getMousePos(event);
                 raycaster.setFromCamera(mouse, camera);
                 const intersects = raycaster.intersectObjects(agents);
                 
                 if(intersects.length > 0) {
                     const targetUrl = intersects[0].object.userData.url;
+                    // Creates an invisible link that forces the parent window to navigate
                     const a = document.createElement('a');
                     a.href = targetUrl;
-                    a.target = '_parent';
+                    a.target = '_top'; 
                     document.body.appendChild(a);
                     a.click();
                 }
             });
 
             window.addEventListener('pointermove', (event) => {
-                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(event.clientY / 650) * 2 + 1;
+                getMousePos(event);
                 raycaster.setFromCamera(mouse, camera);
                 const intersects = raycaster.intersectObjects(agents);
                 document.body.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
@@ -308,6 +320,7 @@ if current_page == "home":
                 requestAnimationFrame(animate); 
                 const elapsedTime = clock.getElapsedTime();
                 
+                // Bobbing motion for nodes
                 agents.forEach(agent => {
                     agent.position.y += Math.sin(elapsedTime * 2 + agent.userData.angle) * 0.01;
                 });
@@ -320,20 +333,15 @@ if current_page == "home":
     </body>
     </html>
     """
-    
-    st.markdown("<h1 style='text-align: center; color: #C41230; margin-top: 10px; font-weight: 800;'>CMU Data Nexus</h1>", unsafe_allow_html=True)
     components.html(cmu_3d_portal, height=700)
 
 # ======================= PAGE 1: MASTER DATA EXPLORER =======================
 elif current_page == "explorer":
+    # Spacer to ensure the UI starts below the fixed radial menu
+    st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
     colored_header(label="Tab 1: Master Data Explorer", description="View and filter all 12 raw data files.", color_name="yellow-70")
     
-    colA, colB = st.columns([3,1])
-    with colA:
-        selected_file = st.selectbox("Select a Dataset to Explore", ALL_FILES)
-    with colB:
-        st.markdown("<br><a href='?page=home' target='_self' style='display: block; text-align: right; color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
-        
+    selected_file = st.selectbox("Select a Dataset to Explore", ALL_FILES)
     df = load_raw_file(selected_file)
     
     if not df.empty and 'Error' not in df.columns:
@@ -345,8 +353,8 @@ elif current_page == "explorer":
 
 # ======================= PAGE 2: DATA CLEANER =======================
 elif current_page == "cleaner":
+    st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
     colored_header(label="Tab 2: Data Cleaner & Anomaly Resolution", description="Automated pipeline fixes applied based on Data Quality Assessment.", color_name="orange-70")
-    st.markdown("<a href='?page=home' target='_self' style='color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
     c1.info("**Fix 1: Index Mapping Extraction**\n\nParsed 'Landing Page' URLs to extract missing `utm_campaign` tags.")
@@ -360,8 +368,8 @@ elif current_page == "cleaner":
 
 # ======================= PAGE 3: DATA ANALYSIS =======================
 elif current_page == "analysis":
+    st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
     colored_header(label="Tab 3: Statistical Data Analysis", description="Regression models and Hypothesis testing.", color_name="green-70")
-    st.markdown("<a href='?page=home' target='_self' style='color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
     
     colA, colB = st.columns(2)
     with colA:
@@ -396,8 +404,8 @@ elif current_page == "analysis":
 
 # ======================= PAGE 4: INTERACTIVE DASHBOARD =======================
 elif current_page == "dashboard":
+    st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
     colored_header(label="Tab 4: Interactive Dashboard", description="Cross-platform financial and operational insights.", color_name="light-blue-70")
-    st.markdown("<a href='?page=home' target='_self' style='color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
     
     if not master_df.empty:
         mc1, mc2, mc3 = st.columns(3)
@@ -425,8 +433,8 @@ elif current_page == "dashboard":
 
 # ======================= PAGE 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
+    st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
     colored_header(label="Tab 5: Knowledge Graph", description="Network topology of Campaign Structure, Vendors, and Mediums.", color_name="violet-70")
-    st.markdown("<a href='?page=home' target='_self' style='color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
     
     if not master_df.empty and 'Unique_Campaign_ID' in master_df.columns:
         G = nx.Graph()
