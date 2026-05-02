@@ -221,17 +221,17 @@ st.markdown("""
         border-radius: 15px;
         padding: 15px;
         box-shadow: 0 10px 30px rgba(255,255,255,0.05);
+    div[data-testid="stMetricValue"], div[data-testid="stMetricLabel"] {
+        color: #111111 !important;
+    }
+    div[data-testid="stMetric"] {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 15px;
+        box-shadow: 0 4px 6px rgba(255,255,255,0.05);
     }
 </style>
 """, unsafe_allow_html=True)
-
-with st.sidebar:
-    st.markdown("### 🌌 Command Center Filters")
-    selected_year = st.selectbox("Fiscal Year", ["All", "FY25", "FY26"])
-    selected_media = st.selectbox("Media Category", ["All", "Video", "Social", "Display"])
-    selected_vendor = st.selectbox("Vendor", ["All", "Google", "LinkedIn", "NYT", "Spotify"])
-    st.markdown("---")
-    st.caption("Filters apply to Architect Dashboard")
 
 if "agent_memory" not in st.session_state:
     st.session_state.agent_memory = {"audit_logs": {}, "synthesis_stats": {}, "model_results": {}}
@@ -451,7 +451,7 @@ elif current_page == "explorer":
         colored_header("Step 1: Forensic Auditor", "Deep-File Profiling & Schema Analysis.", color_name="light-blue-70")
     except ImportError:
         st.header("Step 1: Forensic Auditor")
-        st.caption("Deep-File Profiling & Schema Analysis.")
+        st.markdown("<div class='console-card'><h4 style='margin:0;'>Deep-File Profiling & Schema Analysis.</h4></div>", unsafe_allow_html=True)
 
     st.markdown("""
     <div class="console-card" style="border-left: 4px solid #f59e0b;">
@@ -460,7 +460,7 @@ elif current_page == "explorer":
     </div>
     """, unsafe_allow_html=True)
 
-    st.subheader("General Anomalies")
+    st.markdown("<div class='console-card'><h3 style='margin: 0;'>General Anomalies</h3></div>", unsafe_allow_html=True)
     
     def render_anomaly_card(anomaly):
         color_map = {"Critical": "#ef4444", "High": "#f97316", "Medium": "#f59e0b", "Low": "#3b82f6"}
@@ -486,14 +486,14 @@ elif current_page == "explorer":
         with (col1 if i % 2 == 0 else col2):
             render_anomaly_card(anom)
 
-    st.subheader("File-Specific Audit Report")
+    st.markdown("<div class='console-card'><h3 style='margin: 0;'>File-Specific Audit Report</h3></div>", unsafe_allow_html=True)
     for fa in fileAnomalies:
         with st.expander(f"📄 {fa['file']}"):
-            for issue in fa['issues']:
-                st.markdown(f"- **{issue}**")
+            issues_html = "".join([f"<li style='color:#111111;'>{issue}</li>" for issue in fa['issues']])
+            st.markdown(f"<div style='background: white; padding: 15px; border-radius: 10px;'><ul>{issues_html}</ul></div>", unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("### Interactive File Scanner")
+    st.markdown("<div class='console-card'><h3 style='margin: 0;'>Interactive File Scanner</h3></div>", unsafe_allow_html=True)
     f = st.selectbox("Select Target CSV", ALL_FILES)
     if os.path.exists(f'data/{f}'):
         df = pd.read_csv(f'data/{f}')
@@ -511,27 +511,28 @@ elif current_page == "explorer":
         with t3:
             st.dataframe(df.describe(include='all').T, use_container_width=True)
             
-        st.markdown("### 🤖 Auditor Insights")
         if df.empty:
-            st.warning("The file is empty. I cannot provide insights.")
+            st.markdown("<div class='console-card'><strong style='color:#ef4444;'>⚠️ The file is empty. I cannot provide insights.</strong></div>", unsafe_allow_html=True)
         else:
             missing = df.isna().mean().max() * 100
             dupes = df.duplicated().sum()
-            txt = f"- **Data Completeness**: The highest missing value rate in any column is **{missing:.1f}%**.\n"
-            txt += f"- **Duplication Risk**: Found **{dupes}** duplicate rows.\n"
+            txt = f"<ul style='color:#111111; margin-bottom:0;'>"
+            txt += f"<li><strong>Data Completeness</strong>: The highest missing value rate in any column is <strong>{missing:.1f}%</strong>.</li>"
+            txt += f"<li><strong>Duplication Risk</strong>: Found <strong>{dupes}</strong> duplicate rows.</li>"
             
-            txt += "- 🚨 **Automated Schema Mapping**: Evaluating against UCM Campaign Index (Ground Truth). Flagged unlinked Google_ID/LinkedIn_ID records to ensure 100% attribution continuity.\n"
-            txt += "- 🧹 **Structural Bloat Purge**: Detected unstructured trailing empty rows (e.g., in FY25 logs). Sent signal to Alchemist for automated pruning.\n"
+            txt += "<li>🚨 <strong>Automated Schema Mapping</strong>: Evaluating against UCM Campaign Index (Ground Truth). Flagged unlinked Google_ID/LinkedIn_ID records to ensure 100% attribution continuity.</li>"
+            txt += "<li>🧹 <strong>Structural Bloat Purge</strong>: Detected unstructured trailing empty rows. Sent signal to Alchemist for automated pruning.</li>"
             
             if "Total Spend" in df.columns or "Cost" in df.columns or "Spend" in df.columns or sum("cost" in c.lower() for c in df.columns) > 0:
-                txt += "- **Financial Data Detected**: Ensure that currency values are standardized before joining.\n"
+                txt += "<li><strong>Financial Data Detected</strong>: Ensure that currency values are standardized before joining.</li>"
             if "Session campaign" in df.columns or "Campaign" in df.columns or "UTM campaign" in df.columns or sum("campaign" in c.lower() for c in df.columns) > 0:
-                txt += "- **UTM Keys Detected**: Proceed to the Alchemist to fuzzy match campaign names to Google IDs.\n"
-                txt += "- ⚠️ **Mixed-Type Alert**: 'Call to Action' columns contain both URLs and text strings. Downstream normalization required.\n"
+                txt += "<li><strong>UTM Keys Detected</strong>: Proceed to the Alchemist to fuzzy match campaign names to Google IDs.</li>"
+                txt += "<li>⚠️ <strong>Mixed-Type Alert</strong>: 'Call to Action' columns contain both URLs and text strings. Downstream normalization required.</li>"
+            txt += "</ul>"
 
-            st.info(txt)
+            st.markdown(f"<div class='console-card'><h3 style='margin-top:0;'>🤖 Auditor Insights</h3>{txt}</div>", unsafe_allow_html=True)
     else:
-        st.info("File not found in local 'data/' directory. Relying on pre-configured schema analysis above.")
+        st.markdown("<div class='console-card'><strong style='color:#f59e0b;'>⚠️ File not found in local 'data/' directory. Relying on pre-configured schema analysis above.</strong></div>", unsafe_allow_html=True)
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -547,14 +548,14 @@ elif current_page == "cleaner":
         <h3 style="margin-top: 0;">What is the Alchemist doing?</h3>
         <p style="margin-bottom: 0;">
         The Alchemist handles programmatic <strong>ETL (Extract, Transform, Load)</strong> operations and acts to sanitize and marry disparate datasets.<br><br>
-        <strong>1. TimeSeries Reshaping & Normalization:</strong> It 'melts' wide GA TimeSeries data (365 day columns) into a 'Long' format (Day, User_Count), unifies casing, and strips tracking tracking parameters for a clean 'utm' ID.<br>
+        <strong>1. TimeSeries Reshaping & Normalization:</strong> It 'melts' wide GA TimeSeries data (365 day columns) into a 'Long' format (Day, User_Count), unifies casing, and strips tracking parameters for a clean 'utm' ID.<br>
         <strong>2. Standardization:</strong> It aggressively cleans financial fields, removing currency symbols and commas, enforcing strict numeric data types to prevent analytical errors.<br>
         <strong>3. Attribution Continuity:</strong> Constructs a reliable <i>Unique_Campaign_ID</i> (Source_Medium_Campaign_Content) for non-Google vendors like Axios or Politico, allowing cross-platform joins.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    st.success("Alchemist Pipeline applied fuzzy matching logic and strict type conversion to build the Master Hub.")
+    st.markdown("<div class='console-card'><h3 style='margin-top:0; color:#10b981 !important;'>✅ Alchemist Pipeline Applied</h3><p style='margin:0;'>Fuzzy matching logic and strict type conversion utilized to build the Master Hub below.</p></div>", unsafe_allow_html=True)
     st.dataframe(master_df, use_container_width=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
@@ -580,11 +581,15 @@ elif current_page == "analysis":
     
     if not master_df.empty:
         c1, c2, c3 = st.columns(3)
-        valid_data = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)].copy()
+        valid_data = master_df[(master_df['Total_Spend'] > 0) | (master_df['Total_Users'] > 0)].copy()
         
-        if len(valid_data) > 2 and valid_data['Total_Spend'].var() > 0 and valid_data['Total_Users'].var() > 0:
-            corr, _ = stats.pearsonr(valid_data['Total_Spend'], valid_data['Total_Users'])
-            c1.metric("Spend-to-User Correlation (Pearson)", f"{corr:.2f}", help="1.0 is perfect correlation. 0 is none.")
+        if len(valid_data) > 0:
+            if valid_data['Total_Spend'].var() > 0 and valid_data['Total_Users'].var() > 0:
+                corr, _ = stats.pearsonr(valid_data['Total_Spend'], valid_data['Total_Users'])
+                corr_val = f"{corr:.2f}"
+            else:
+                corr_val = "N/A"
+            c1.metric("Spend-to-User Correlation (Pearson)", corr_val, help="1.0 is perfect correlation. 0 is none.")
             c2.metric("Significant Campaigns Tracked", len(valid_data))
             c3.metric("Cost per Acquired User (Avg)", f"${valid_data['CPWU'].mean():.2f}")
             
@@ -593,13 +598,13 @@ elif current_page == "analysis":
             except:
                 valid_data['Efficiency Tier'] = 'Unclassified'
             
-            st.markdown("### Spend vs Users (Linear Regression)")
+            st.markdown("<div class='console-card'><h3 style='margin:0;'>Spend vs Users (Correlation)</h3></div>", unsafe_allow_html=True)
             fig_s = px.scatter(valid_data, x="Total_Spend", y="Total_Users", 
                                        color="Category", title="Efficiency Frontier: Are we getting what we pay for?")
             fig_s.update_layout(font_color="#111111", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig_s, use_container_width=True)
                                        
-            st.markdown("### Cost-Efficiency Tiering Analysis")
+            st.markdown("<div class='console-card'><h3 style='margin:0;'>Cost-Efficiency Tiering Analysis</h3></div>", unsafe_allow_html=True)
             fig_c = px.scatter(valid_data, x="Total_Spend", y="CPWU", 
                                        color="Efficiency Tier", size="Total_Users", hover_name="utm_clean",
                                        title="Cluster Analysis: Identifying High-Spend, Low-Efficiency Campaigns")
@@ -609,10 +614,10 @@ elif current_page == "analysis":
             c1.metric("Spend-to-User Correlation", "N/A")
             c2.metric("Significant Campaigns Tracked", len(valid_data))
             c3.metric("Cost per Acquired User (Avg)", "N/A")
-            st.warning("⚠️ Insufficient variance for Statistical Modeling. Check Alchemist step.")
+            st.markdown("<div class='console-card'><strong>⚠️ Notice:</strong> Insufficient variance or lack of spend/user overlap. Charts require joined numeric data.</div>", unsafe_allow_html=True)
 
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown("### 🏆 Creative Leaderboard: Full Completion Rate vs. Spend")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<div class='console-card'><h3 style='margin:0;'>🏆 Creative Leaderboard: Full Completion Rate vs. Spend</h3></div>", unsafe_allow_html=True)
         leader_df = pd.DataFrame([
             {"Ad/Theme": "Anthem 15s (Arts)", "Spend": "$15,400", "Completion Rate": "55%", "Cost per Full Completion": "$1.24", "Optimized Targeting Lift": "+24%"},
             {"Ad/Theme": "AI Research (Tech)", "Spend": "$8,200", "Completion Rate": "35%", "Cost per Full Completion": "$1.48", "Optimized Targeting Lift": "+18%"},
@@ -624,11 +629,22 @@ elif current_page == "analysis":
 # ======================= AGENT 4: VISUAL ARCHITECT (DASHBOARD) =======================
 elif current_page == "dashboard":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
+    
+    with st.sidebar:
+        st.markdown("### 🌌 Command Center Filters")
+        selected_year = st.selectbox("Fiscal Year", ["All", "FY25", "FY26"])
+        selected_media = st.selectbox("Media Category", ["All", "Video", "Social", "Display"])
+        selected_vendor = st.selectbox("Vendor", ["All", "Google", "LinkedIn", "NYT", "Spotify"])
+        st.markdown("---")
+        st.caption("Filters apply to Architect Dashboard")
+
     st.markdown("""
-        <h1 style='color: #0f172a; display: flex; align-items: center; gap: 15px;'>
-            <span style='font-size: 32px;'>🖥️</span> The Oracle Dashboard
-        </h1>
-        <p style='color: #475569; font-size: 18px;'>Omniscient synthesis of the marketing ecosystem.</p>
+        <div class="console-card">
+            <h1 style='color: #0f172a !important; display: flex; align-items: center; gap: 15px; margin: 0;'>
+                <span style='font-size: 32px;'>🖥️</span> The Oracle Dashboard
+            </h1>
+            <p style='color: #475569 !important; font-size: 18px; margin: 0;'>Omniscient synthesis of the marketing ecosystem.</p>
+        </div>
     """, unsafe_allow_html=True)
     
     # Calculate real KPI metrics dynamically
@@ -695,7 +711,7 @@ elif current_page == "dashboard":
     
     # Temporal Velocity Line Chart
     with colA:
-        st.markdown("<h3 style='color: #0f172a;'>🔵 Heartbeat Pulse: Temporal Velocity</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='console-card'><h3 style='color: #0f172a !important; margin:0;'>🔵 Heartbeat Pulse: Temporal Velocity</h3></div>", unsafe_allow_html=True)
         # Inject Tony Awards and SXSW peaks into data to demonstrate "Pulse" if they don't explicitly exist
         if not timeSeriesData.empty:
             max_day = str(timeSeriesData['day'].iloc[-1] if len(timeSeriesData) > 0 else "")
@@ -714,17 +730,17 @@ elif current_page == "dashboard":
 
     # Audience Resonance Bar Chart
     with colB:
-        st.markdown("<h3 style='color: #0f172a;'>🟣 Audience Resonance (CTR)</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='console-card'><h3 style='color: #0f172a !important; margin:0;'>🟣 Audience Resonance (CTR)</h3></div>", unsafe_allow_html=True)
         fig2 = px.bar(audiencePerformance, x='segment', y='ctr', 
                       color_discrete_sequence=["#c084fc"])
         fig2.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color="#111111",
                            margin=dict(l=0,r=0,t=20,b=0))
         st.plotly_chart(fig2, use_container_width=True)
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
     
     # Retention Heatmaps
-    st.markdown("<h3 style='color: #0f172a;'>🔥 Viewer Retention Heatmap (Video Campaigns)</h3>", unsafe_allow_html=True)
+    st.markdown("<div class='console-card'><h3 style='color: #0f172a !important; margin:0;'>🔥 Viewer Retention Heatmap (Video Campaigns)</h3></div>", unsafe_allow_html=True)
     retention_data = pd.DataFrame([
         {"Campaign": "Anthem 30s", "25%": 85, "50%": 60, "75%": 40, "100%": 25},
         {"Campaign": "Anthem 15s", "25%": 92, "50%": 78, "75%": 65, "100%": 55},
@@ -737,10 +753,10 @@ elif current_page == "dashboard":
     fig_heat.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color="#111111", margin=dict(l=0,r=0,t=20,b=0))
     st.plotly_chart(fig_heat, use_container_width=True)
 
-    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # Attention Economy Scatter
-    st.markdown("<h3 style='color: #0f172a;'>🌍 The Attention Economy: Engagement vs. Dwell Time</h3>", unsafe_allow_html=True)
+    st.markdown("<div class='console-card'><h3 style='color: #0f172a !important; margin:0;'>🌍 The Attention Economy: Engagement vs. Dwell Time</h3><p style='color: #475569 !important; font-size: 14px; margin: 0;'>Bubble volume correlates to user magnitude. High-velocity campaigns often exhibit low dwell latency.</p></div>", unsafe_allow_html=True)
     fig3 = px.scatter(websiteTraffic, x="engagementRate", y="avgSessionDuration", size="users",
                       color_discrete_sequence=["#3b82f6"], hover_name="campaign")
     fig3.update_layout(
@@ -749,7 +765,6 @@ elif current_page == "dashboard":
         margin=dict(l=0,r=0,t=20,b=0)
     )
     st.plotly_chart(fig3, use_container_width=True)
-    st.caption("Bubble volume correlates to user magnitude. High-velocity campaigns often exhibit low dwell latency.")
 
 # ======================= AGENT 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
