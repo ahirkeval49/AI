@@ -28,7 +28,7 @@ def get_base64_of_bin_file(bin_file):
     except: return ""
 
 # ---------------------------------------------------------
-# 2. THE ALCHEMIST ENGINE: AGGRESSIVE NORMALIZATION
+# 2. THE ALCHEMIST ENGINE: AGGRESSIVE ETL NORMALIZATION
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -51,7 +51,7 @@ def clean_currency(series):
 
 def normalize_key(series):
     """THE FIX: Aggressive Alphanumeric Normalization. 
-    Strips ALL spaces, underscores, and dashes to force perfect matches."""
+    Strips ALL spaces, underscores, and dashes to force perfect matches between files."""
     return series.astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True).replace('nan', '')
 
 @st.cache_data
@@ -254,8 +254,7 @@ elif current_page == "explorer":
             profile = pd.DataFrame({'Type': df.dtypes.astype(str), 'Nulls': df.isna().sum(), 'Unique': df.nunique()})
             st.dataframe(profile, use_container_width=True)
         with t3:
-            # Drop strings for clean statistical describe
-            st.dataframe(df.describe().T, use_container_width=True)
+            st.dataframe(df.describe(include='all').T, use_container_width=True)
     else:
         st.error("File not found in data directory.")
 
@@ -263,7 +262,7 @@ elif current_page == "explorer":
 elif current_page == "cleaner":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     from streamlit_extras.colored_header import colored_header
-    colored_header("Step 2: Data Alchemist", "Synthesized Master Hub: Aggressive UTM matching applied.")
+    colored_header("Step 2: Data Alchemist", "Synthesized Master Hub: Standardized financial strings and cross-platform joins.")
     
     if not master_df.empty:
         total_spend = master_df['Total_Spend'].sum()
@@ -284,6 +283,7 @@ elif current_page == "analysis":
         c1, c2 = st.columns(2)
         valid_data = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)]
         
+        # DEFENSIVE CHECK: Prevent SciPy KeyError / Zero Variance Crash
         if len(valid_data) > 2 and valid_data['Total_Spend'].var() > 0 and valid_data['Total_Users'].var() > 0:
             corr, _ = stats.pearsonr(valid_data['Total_Spend'], valid_data['Total_Users'])
             c1.metric("Spend-to-User Correlation (Pearson)", f"{corr:.2f}")
@@ -307,11 +307,11 @@ elif current_page == "dashboard":
         categories = master_df['Category'].dropna().unique().tolist()
         selected_cats = st.sidebar.multiselect("Filter by Category", categories, default=categories)
         
-        # DEFENSIVE SLIDER LOGIC
+        # DEFENSIVE SLIDER: Prevent Streamlit API Exception
         max_spend = float(master_df['Total_Spend'].max()) if not master_df.empty else 0.0
         if pd.isna(max_spend) or max_spend <= 0.0:
-            max_spend = 1.0 # Safe fallback to prevent Streamlit exception
-            st.sidebar.warning("Warning: Max spend is 0. Slider range artificially set to 1.0 to prevent crash.")
+            max_spend = 1.0 # Minimum valid range to prevent crash
+            st.sidebar.warning("No Spend Data available to filter. Displaying fallback slider.")
             
         spend_range = st.sidebar.slider("Filter by Total Spend", 0.0, max_spend, (0.0, max_spend))
         
@@ -341,7 +341,7 @@ elif current_page == "dashboard":
             
         st.dataframe(filtered_df[['utm_clean', 'Category', 'Total_Spend', 'Total_Users', 'CPWU']].sort_values(by="Total_Spend", ascending=False), use_container_width=True)
     else:
-        st.error("Master Hub is empty.")
+        st.warning("Master Hub is empty. Check Alchemist module.")
 
 # ======================= AGENT 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
@@ -353,7 +353,7 @@ elif current_page == "graph":
         net = Network(height="650px", width="100%", bgcolor="#ffffff", font_color="#333")
         net.add_node("Nexus Hub", size=45, color="#C41230", label="NEXUS CORE")
         for cat in master_df['Category'].unique():
-            if pd.notna(cat) and cat != "":
+            if pd.notna(cat) and str(cat).strip() != "":
                 net.add_node(str(cat), size=25, color="#6D6E71")
                 net.add_edge("Nexus Hub", str(cat))
                 cat_campaigns = master_df[master_df['Category'] == cat]['utm_clean'].dropna().unique()
