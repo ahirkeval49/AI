@@ -10,6 +10,7 @@ import tempfile
 import os
 from urllib.parse import urlparse, parse_qs
 
+# Streamlit Extras for premium UI
 from streamlit_extras.colored_header import colored_header
 from streamlit_extras.metric_cards import style_metric_cards
 from streamlit_extras.dataframe_explorer import dataframe_explorer
@@ -19,7 +20,7 @@ from streamlit_extras.dataframe_explorer import dataframe_explorer
 # ---------------------------------------------------------
 st.set_page_config(page_title="CMU AI Nexus", layout="wide", initial_sidebar_state="collapsed")
 
-# Routing Logic
+# Routing Logic: Read URL parameters to know which page to render
 if "page" not in st.query_params:
     st.query_params["page"] = "home"
 current_page = st.query_params["page"]
@@ -27,65 +28,36 @@ current_page = st.query_params["page"]
 # ---------------------------------------------------------
 # 2. GLOBAL CUSTOM UI: TOP-LEFT RADIAL MENU (STAYS OPEN)
 # ---------------------------------------------------------
-# If we are not on the home page, force the menu to stay open
+# Force menu to stay open if not on home page
 menu_checked_state = "checked" if current_page != "home" else ""
 
 radial_menu_html = f"""
 <style>
-    /* Fixed globally to the top-left, avoiding Streamlit's default header */
-    .radial-nav {{ position: fixed; top: 40px; left: 20px; z-index: 9999999; }}
-    
-    #menu-toggle {{ display: none; }}
-    
-    .menu-button {{
-        width: 60px; height: 60px; background-color: #C41230; color: white;
-        border-radius: 50%; display: flex; justify-content: center; align-items: center;
-        font-size: 28px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-        position: relative; z-index: 20; transition: transform 0.3s ease;
-        border: 2px solid #FFF; font-family: sans-serif;
-    }}
-    
-    .menu-label {{
-        position: absolute; top: 20px; left: 80px; width: 250px;
-        color: #C41230; font-family: sans-serif; font-size: 14px; font-weight: bold;
-        pointer-events: none; transition: opacity 0.3s;
-    }}
-    
-    /* When checked, rotate the button and hide the label */
-    #menu-toggle:checked ~ .menu-button {{ transform: rotate(45deg); background-color: #222; }}
-    #menu-toggle:checked ~ .menu-label {{ opacity: 0; }}
-    
-    .menu-item {{
-        position: absolute; top: 5px; left: 5px; width: 50px; height: 50px;
-        background-color: #333; color: white; border-radius: 50%;
-        display: flex; justify-content: center; align-items: center;
-        font-size: 9px; text-decoration: none; font-weight: bold; font-family: sans-serif;
-        opacity: 0; transform: scale(0); transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid #555; z-index: 10;
-    }}
-    
-    .menu-item:hover {{ background-color: #C41230; border-color: white; transform: scale(1.1) !important; color: white;}}
-
-    /* Fan out positions when checked (Fanning down and to the right) */
-    #menu-toggle:checked ~ .item-1 {{ opacity: 1; transform: translate(70px, 0px) scale(1); }}
-    #menu-toggle:checked ~ .item-2 {{ opacity: 1; transform: translate(60px, 55px) scale(1); }}
-    #menu-toggle:checked ~ .item-3 {{ opacity: 1; transform: translate(25px, 90px) scale(1); }}
-    #menu-toggle:checked ~ .item-4 {{ opacity: 1; transform: translate(-25px, 90px) scale(1); }}
-    #menu-toggle:checked ~ .item-5 {{ opacity: 1; transform: translate(-60px, 55px) scale(1); }}
-    #menu-toggle:checked ~ .item-6 {{ opacity: 1; transform: translate(0px, 125px) scale(1); }}
+.radial-nav {{ position: fixed; top: 40px; left: 20px; z-index: 9999999; }}
+#menu-toggle {{ display: none; }}
+.menu-button {{ width: 60px; height: 60px; background-color: #C41230; color: white; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 28px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.5); position: relative; z-index: 20; transition: transform 0.3s ease; border: 2px solid #FFF; font-family: sans-serif; }}
+.menu-label {{ position: absolute; top: 20px; left: 80px; width: 250px; color: #C41230; font-family: sans-serif; font-size: 14px; font-weight: bold; pointer-events: none; transition: opacity 0.3s; }}
+#menu-toggle:checked ~ .menu-button {{ transform: rotate(45deg); background-color: #222; }}
+#menu-toggle:checked ~ .menu-label {{ opacity: 0; }}
+.menu-item {{ position: absolute; top: 5px; left: 5px; width: 50px; height: 50px; background-color: #333; color: white; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 9px; text-decoration: none; font-weight: bold; font-family: sans-serif; opacity: 0; transform: scale(0); transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid #555; z-index: 10; text-align: center; }}
+.menu-item:hover {{ background-color: #C41230 !important; border-color: white !important; transform: scale(1.1) !important; color: white !important; }}
+#menu-toggle:checked ~ .item-1 {{ opacity: 1; transform: translate(70px, 0px) scale(1); }}
+#menu-toggle:checked ~ .item-2 {{ opacity: 1; transform: translate(60px, 55px) scale(1); }}
+#menu-toggle:checked ~ .item-3 {{ opacity: 1; transform: translate(25px, 90px) scale(1); }}
+#menu-toggle:checked ~ .item-4 {{ opacity: 1; transform: translate(-25px, 90px) scale(1); }}
+#menu-toggle:checked ~ .item-5 {{ opacity: 1; transform: translate(-60px, 55px) scale(1); }}
+#menu-toggle:checked ~ .item-6 {{ opacity: 1; transform: translate(0px, 125px) scale(1); }}
 </style>
-
 <div class="radial-nav">
-    <input type="checkbox" id="menu-toggle" {menu_checked_state}>
-    <label for="menu-toggle" class="menu-button">✦</label>
-    <div class="menu-label">Toggle to explore tabs ⭢</div>
-    
-    <a href="?page=home" target="_self" class="menu-item item-1">HOME</a>
-    <a href="?page=explorer" target="_self" class="menu-item item-2">EXPLORE</a>
-    <a href="?page=cleaner" target="_self" class="menu-item item-3">CLEAN</a>
-    <a href="?page=analysis" target="_self" class="menu-item item-4">STATS</a>
-    <a href="?page=dashboard" target="_self" class="menu-item item-5">DASH</a>
-    <a href="?page=graph" target="_self" class="menu-item item-6">GRAPH</a>
+<input type="checkbox" id="menu-toggle" {menu_checked_state}>
+<label for="menu-toggle" class="menu-button">✦</label>
+<div class="menu-label">Toggle to explore tabs ⭢</div>
+<a href="?page=home" target="_self" class="menu-item item-1">HOME</a>
+<a href="?page=explorer" target="_self" class="menu-item item-2">EXPLORE</a>
+<a href="?page=cleaner" target="_self" class="menu-item item-3">CLEAN</a>
+<a href="?page=analysis" target="_self" class="menu-item item-4">STATS</a>
+<a href="?page=dashboard" target="_self" class="menu-item item-5">DASH</a>
+<a href="?page=graph" target="_self" class="menu-item item-6">GRAPH</a>
 </div>
 """
 st.markdown(radial_menu_html, unsafe_allow_html=True)
@@ -191,9 +163,9 @@ index_df, ga_utm, melted_ga, gads_perf, linkedin_clean, master_df = build_master
 # ======================= PAGE: 3D HOME =======================
 if current_page == "home":
     st.markdown("<h1 style='text-align: center; color: #C41230; margin-top: 20px; font-weight: 800;'>CMU Data Nexus</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #888;'>Drag to rotate camera. <b>Click the orbiting nodes</b> to enter the data tabs.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #888;'>Drag to rotate camera. <b>Use the radial menu top-left to navigate to the data tabs.</b></p>", unsafe_allow_html=True)
     
-    # 3D Iframe with `target="_top"` click fix built into the Raycaster
+    # 3D Iframe
     cmu_3d_portal = """
     <!DOCTYPE html>
     <html>
@@ -256,15 +228,15 @@ if current_page == "home":
             });
             scene.add(cmuGroup);
 
-            // 2. Add 5 Orbiting Clickable Nodes
+            // 2. Add 5 Orbiting Nodes (Visual elements)
             const agents = [];
             const sphereGeo = new THREE.SphereGeometry(0.6, 32, 32);
             const nodesConfig = [
-                { color: 0xE2C044, url: "?page=explorer" }, // Yellow: Explorer
-                { color: 0xE87A5D, url: "?page=cleaner" },  // Orange: Cleaner
-                { color: 0x44BBA4, url: "?page=analysis" }, // Green: Stats
-                { color: 0x00A6D6, url: "?page=dashboard" }, // Blue: Dashboard
-                { color: 0x9B5DE5, url: "?page=graph" }     // Purple: Graph
+                { color: 0xE2C044 }, // Yellow
+                { color: 0xE87A5D }, // Orange
+                { color: 0x44BBA4 }, // Green
+                { color: 0x00A6D6 }, // Blue
+                { color: 0x9B5DE5 }  // Purple
             ];
 
             nodesConfig.forEach((config, index) => {
@@ -273,46 +245,13 @@ if current_page == "home":
                 const angle = (index / 5) * Math.PI * 2;
                 const radius = 6;
                 mesh.position.set(Math.cos(angle) * radius, Math.sin(angle) * 2, Math.sin(angle) * radius);
-                mesh.userData = { url: config.url, angle: angle };
+                mesh.userData = { angle: angle };
                 scene.add(mesh); 
                 agents.push(mesh);
             });
 
             camera.position.z = 12;
             camera.position.y = 2;
-
-            // 3. The `target="_top"` Raycaster Fix
-            const raycaster = new THREE.Raycaster();
-            const mouse = new THREE.Vector2();
-
-            function getMousePos(event) {
-                const rect = renderer.domElement.getBoundingClientRect();
-                mouse.x = ( ( event.clientX - rect.left ) / rect.width ) * 2 - 1;
-                mouse.y = - ( ( event.clientY - rect.top ) / rect.height ) * 2 + 1;
-            }
-
-            window.addEventListener('pointerdown', (event) => {
-                getMousePos(event);
-                raycaster.setFromCamera(mouse, camera);
-                const intersects = raycaster.intersectObjects(agents);
-                
-                if(intersects.length > 0) {
-                    const targetUrl = intersects[0].object.userData.url;
-                    // Creates an invisible link that forces the parent window to navigate
-                    const a = document.createElement('a');
-                    a.href = targetUrl;
-                    a.target = '_top'; 
-                    document.body.appendChild(a);
-                    a.click();
-                }
-            });
-
-            window.addEventListener('pointermove', (event) => {
-                getMousePos(event);
-                raycaster.setFromCamera(mouse, camera);
-                const intersects = raycaster.intersectObjects(agents);
-                document.body.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
-            });
 
             // 4. Animation Loop
             const clock = new THREE.Clock();
