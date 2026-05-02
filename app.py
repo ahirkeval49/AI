@@ -20,59 +20,13 @@ from streamlit_extras.dataframe_explorer import dataframe_explorer
 # ---------------------------------------------------------
 st.set_page_config(page_title="CMU AI Nexus", layout="wide", initial_sidebar_state="collapsed")
 
+# Routing Logic: Read URL parameters to know which page to render
 if "page" not in st.query_params:
     st.query_params["page"] = "home"
 current_page = st.query_params["page"]
 
 # ---------------------------------------------------------
-# 2. CUSTOM UI: TOP-LEFT RADIAL MENU
-# ---------------------------------------------------------
-radial_menu_html = """
-<style>
-    .radial-nav { position: fixed; top: 20px; left: 20px; z-index: 999999; }
-    .menu-button {
-        width: 60px; height: 60px; background-color: #C41230; color: white;
-        border-radius: 50%; display: flex; justify-content: center; align-items: center;
-        font-size: 24px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-        transition: transform 0.3s ease; position: relative; z-index: 2;
-    }
-    .menu-label {
-        position: absolute; top: 18px; left: 75px; width: 250px;
-        color: #888; font-family: sans-serif; font-size: 14px; font-weight: bold;
-        pointer-events: none; transition: opacity 0.3s;
-    }
-    .radial-nav:hover .menu-button { transform: rotate(90deg); }
-    .radial-nav:hover .menu-label { opacity: 0; }
-    .menu-item {
-        position: absolute; width: 50px; height: 50px; background-color: #333; color: white;
-        border-radius: 50%; display: flex; justify-content: center; align-items: center;
-        font-size: 10px; text-decoration: none; font-family: sans-serif; font-weight: bold; text-align: center;
-        opacity: 0; transform: scale(0) translate(0, 0); transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        box-shadow: 0 4px 10px rgba(0,0,0,0.3); border: 1px solid #555; z-index: 1; top: 5px; left: 5px;
-    }
-    .radial-nav:hover .item-home { opacity: 1; transform: translate(75px, 0px) scale(1); }
-    .radial-nav:hover .item-exp  { opacity: 1; transform: translate(65px, 50px) scale(1); }
-    .radial-nav:hover .item-cln  { opacity: 1; transform: translate(35px, 85px) scale(1); }
-    .radial-nav:hover .item-ana  { opacity: 1; transform: translate(-10px, 100px) scale(1); }
-    .radial-nav:hover .item-dash { opacity: 1; transform: translate(-55px, 85px) scale(1); }
-    .radial-nav:hover .item-kg   { opacity: 1; transform: translate(-85px, 50px) scale(1); }
-    .menu-item:hover { background-color: #C41230; border-color: #FFF; color: #FFF;}
-</style>
-<div class="radial-nav">
-    <div class="menu-label">Toggle to move to different tabs ⭢</div>
-    <div class="menu-button">✦</div>
-    <a href="?page=home" target="_self" class="menu-item item-home" title="3D Home">HOME</a>
-    <a href="?page=explorer" target="_self" class="menu-item item-exp" title="Data Explorer">EXPLORE</a>
-    <a href="?page=cleaner" target="_self" class="menu-item item-cln" title="Data Cleaner">CLEAN</a>
-    <a href="?page=analysis" target="_self" class="menu-item item-ana" title="Data Analysis">STATS</a>
-    <a href="?page=dashboard" target="_self" class="menu-item item-dash" title="Interactive Dashboard">DASH</a>
-    <a href="?page=graph" target="_self" class="menu-item item-kg" title="Knowledge Graph">GRAPH</a>
-</div>
-"""
-st.markdown(radial_menu_html, unsafe_allow_html=True)
-
-# ---------------------------------------------------------
-# 3. GLOBAL DATA PROCESSING LOGIC (Implementing Assessment Fixes)
+# 2. GLOBAL DATA PROCESSING LOGIC
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -177,93 +131,209 @@ def build_master_models():
 index_df, ga_utm, melted_ga, gads_perf, linkedin_clean, master_df = build_master_models()
 
 # ---------------------------------------------------------
-# 4. VIEW RENDERING (ROUTING)
+# 3. VIEW RENDERING (ROUTING)
 # ---------------------------------------------------------
 
 # ======================= PAGE: 3D HOME =======================
 if current_page == "home":
-    st.markdown("<h1 style='text-align: center; color: #C41230; margin-top: 20px;'>CMU Data Nexus</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #888;'>Drag to rotate camera. <b>Click the floating Agent Nodes</b> to explore the specific tabs.</p>", unsafe_allow_html=True)
-    
-    three_js_app = """
+    # 3D Canvas + Integrated Radial Menu to prevent iframe click issues
+    cmu_3d_portal = """
     <!DOCTYPE html>
     <html>
     <head>
-        <style> body { margin: 0; overflow: hidden; background-color: #050505; border-radius: 10px; } </style>
+        <style> 
+            body { margin: 0; overflow: hidden; background-color: #0A0A0A; font-family: sans-serif; border-radius: 10px; } 
+            
+            /* Centered Clickable Radial Menu */
+            .nav-wrapper {
+                position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+                z-index: 999; width: 70px; height: 70px;
+            }
+            #menu-toggle { display: none; }
+            .menu-button {
+                width: 70px; height: 70px; background-color: #C41230; color: white;
+                border-radius: 50%; display: flex; justify-content: center; align-items: center;
+                font-size: 28px; cursor: pointer; box-shadow: 0 4px 20px rgba(196, 18, 48, 0.4);
+                position: relative; z-index: 20; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+                border: 2px solid #FFF;
+            }
+            #menu-toggle:checked ~ .menu-button { transform: rotate(45deg); background-color: #222;}
+            
+            .menu-item {
+                position: absolute; top: 10px; left: 10px; width: 50px; height: 50px;
+                background-color: #222; color: white; border-radius: 50%;
+                display: flex; justify-content: center; align-items: center;
+                font-size: 10px; text-decoration: none; font-weight: bold;
+                opacity: 0; transform: scale(0); transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                box-shadow: 0 4px 10px rgba(0,0,0,0.5); border: 1px solid #555; z-index: 10;
+            }
+            .menu-item:hover { background-color: #C41230; border-color: white; transform: scale(1.1) !important;}
+
+            /* Fan out positions when checked */
+            #menu-toggle:checked ~ .item-1 { opacity: 1; transform: translate(-140px, -20px) scale(1); }
+            #menu-toggle:checked ~ .item-2 { opacity: 1; transform: translate(-85px, -90px) scale(1); }
+            #menu-toggle:checked ~ .item-3 { opacity: 1; transform: translate(0px, -120px) scale(1); }
+            #menu-toggle:checked ~ .item-4 { opacity: 1; transform: translate(85px, -90px) scale(1); }
+            #menu-toggle:checked ~ .item-5 { opacity: 1; transform: translate(140px, -20px) scale(1); }
+
+            .hint-text {
+                position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%);
+                color: #888; font-size: 13px; white-space: nowrap; pointer-events: none; font-weight: bold;
+                letter-spacing: 1px;
+            }
+        </style>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     </head>
     <body>
+        
+        <div class="nav-wrapper">
+            <input type="checkbox" id="menu-toggle">
+            <label for="menu-toggle" class="menu-button">✦</label>
+            <a href="?page=explorer" target="_parent" class="menu-item item-1">EXPLORE</a>
+            <a href="?page=cleaner" target="_parent" class="menu-item item-2">CLEAN</a>
+            <a href="?page=analysis" target="_parent" class="menu-item item-3">STATS</a>
+            <a href="?page=dashboard" target="_parent" class="menu-item item-4">DASH</a>
+            <a href="?page=graph" target="_parent" class="menu-item item-5">GRAPH</a>
+            <div class="hint-text">CLICK TO EXPAND MENU</div>
+        </div>
+
         <script>
             const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / 600, 0.1, 1000);
+            scene.fog = new THREE.FogExp2(0x0A0A0A, 0.02);
+
+            const camera = new THREE.PerspectiveCamera(60, window.innerWidth / 650, 0.1, 1000);
             const renderer = new THREE.WebGLRenderer({alpha: true, antialias: true});
-            renderer.setSize(window.innerWidth, 600);
+            renderer.setSize(window.innerWidth, 650);
             document.body.appendChild(renderer.domElement);
+            
             const controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 0.5;
+            controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 1.5;
 
-            // Background Particles
-            const particlesCount = 4000;
-            const posArray = new Float32Array(particlesCount * 3);
-            for(let i = 0; i < particlesCount * 3; i++) { posArray[i] = (Math.random() - 0.5) * 20; }
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
-            const material = new THREE.PointsMaterial({ size: 0.02, color: 0x555555 });
-            const particlesMesh = new THREE.Points(geometry, material);
-            scene.add(particlesMesh);
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 10, 5);
+            scene.add(dirLight);
 
-            // 5 Interactive Nodes
-            const agents = [];
-            const sphereGeo = new THREE.SphereGeometry(0.5, 32, 32);
-            const nodesConfig = [
-                { color: 0xE2C044, pos: [-3, 2, 0], url: "?page=explorer" }, // Yellow
-                { color: 0xE87A5D, pos: [3, 2, 0], url: "?page=cleaner" },  // Orange
-                { color: 0x44BBA4, pos: [-4, -1, 2], url: "?page=analysis" }, // Green
-                { color: 0x00A6D6, pos: [4, -1, -2], url: "?page=dashboard" }, // Blue
-                { color: 0x9B5DE5, pos: [0, 0, 3], url: "?page=graph" }        // Purple
+            // 1. Build the 3D CMU Letters
+            const blockGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const blockMat = new THREE.MeshStandardMaterial({ color: 0xC41230, roughness: 0.2, metalness: 0.5 });
+            const cmuGroup = new THREE.Group();
+
+            // Coordinates for block letters C-M-U
+            const coords = [
+                // C
+                [0,0],[1,0],[2,0],[3,0],
+                [0,-1], [0,-2], [0,-3],
+                [0,-4],[1,-4],[2,-4],[3,-4],
+                // M
+                [5,0],[9,0],
+                [5,-1],[6,-1],[8,-1],[9,-1],
+                [5,-2],[7,-2],[9,-2],
+                [5,-3],[9,-3],
+                [5,-4],[9,-4],
+                // U
+                [11,0],[14,0],
+                [11,-1],[14,-1],
+                [11,-2],[14,-2],
+                [11,-3],[14,-3],
+                [11,-4],[12,-4],[13,-4],[14,-4]
             ];
 
-            nodesConfig.forEach(config => {
-                const mat = new THREE.MeshBasicMaterial({color: config.color});
+            coords.forEach(pos => {
+                const mesh = new THREE.Mesh(blockGeo, blockMat);
+                mesh.position.set((pos[0] * 0.55) - 4, (pos[1] * 0.55) + 1, 0);
+                cmuGroup.add(mesh);
+            });
+            scene.add(cmuGroup);
+
+            // 2. Add Orbiting Interactive Nodes
+            const agents = [];
+            const sphereGeo = new THREE.SphereGeometry(0.6, 32, 32);
+            const nodesConfig = [
+                { color: 0xE2C044, url: "?page=explorer" }, 
+                { color: 0xE87A5D, url: "?page=cleaner" },  
+                { color: 0x44BBA4, url: "?page=analysis" }, 
+                { color: 0x00A6D6, url: "?page=dashboard" }, 
+                { color: 0x9B5DE5, url: "?page=graph" }     
+            ];
+
+            nodesConfig.forEach((config, index) => {
+                const mat = new THREE.MeshStandardMaterial({color: config.color, emissive: config.color, emissiveIntensity: 0.4});
                 const mesh = new THREE.Mesh(sphereGeo, mat);
-                mesh.position.set(...config.pos);
-                mesh.userData = { url: config.url };
-                scene.add(mesh); agents.push(mesh);
+                const angle = (index / 5) * Math.PI * 2;
+                const radius = 6;
+                mesh.position.set(Math.cos(angle) * radius, Math.sin(angle) * 2, Math.sin(angle) * radius);
+                mesh.userData = { url: config.url, angle: angle, radius: radius };
+                scene.add(mesh); 
+                agents.push(mesh);
             });
 
-            camera.position.z = 8;
+            camera.position.z = 12;
+            camera.position.y = 2;
+
+            // 3. Fix Streamlit iframe Clicks using target='_parent' programmatic simulation
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
 
             window.addEventListener('pointerdown', (event) => {
                 mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(event.clientY / 600) * 2 + 1;
+                mouse.y = -(event.clientY / 650) * 2 + 1;
                 raycaster.setFromCamera(mouse, camera);
                 const intersects = raycaster.intersectObjects(agents);
-                if(intersects.length > 0) window.parent.location.search = intersects[0].object.userData.url;
+                
+                if(intersects.length > 0) {
+                    const targetUrl = intersects[0].object.userData.url;
+                    const a = document.createElement('a');
+                    a.href = targetUrl;
+                    a.target = '_parent';
+                    document.body.appendChild(a);
+                    a.click();
+                }
             });
 
             window.addEventListener('pointermove', (event) => {
                 mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-                mouse.y = -(event.clientY / 600) * 2 + 1;
+                mouse.y = -(event.clientY / 650) * 2 + 1;
                 raycaster.setFromCamera(mouse, camera);
                 const intersects = raycaster.intersectObjects(agents);
                 document.body.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
             });
 
-            function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+            // 4. Animation Loop
+            const clock = new THREE.Clock();
+            function animate() { 
+                requestAnimationFrame(animate); 
+                const elapsedTime = clock.getElapsedTime();
+                
+                agents.forEach(agent => {
+                    agent.position.y += Math.sin(elapsedTime * 2 + agent.userData.angle) * 0.01;
+                });
+
+                controls.update(); 
+                renderer.render(scene, camera); 
+            }
             animate();
         </script>
     </body>
     </html>
     """
-    components.html(three_js_app, height=600)
+    
+    st.markdown("<h1 style='text-align: center; color: #C41230; margin-top: 10px; font-weight: 800;'>CMU Data Nexus</h1>", unsafe_allow_html=True)
+    components.html(cmu_3d_portal, height=700)
 
 # ======================= PAGE 1: MASTER DATA EXPLORER =======================
 elif current_page == "explorer":
     colored_header(label="Tab 1: Master Data Explorer", description="View and filter all 12 raw data files.", color_name="yellow-70")
-    selected_file = st.selectbox("Select a Dataset to Explore", ALL_FILES)
+    
+    colA, colB = st.columns([3,1])
+    with colA:
+        selected_file = st.selectbox("Select a Dataset to Explore", ALL_FILES)
+    with colB:
+        st.markdown("<br><a href='?page=home' target='_self' style='display: block; text-align: right; color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
+        
     df = load_raw_file(selected_file)
     
     if not df.empty and 'Error' not in df.columns:
@@ -276,6 +346,7 @@ elif current_page == "explorer":
 # ======================= PAGE 2: DATA CLEANER =======================
 elif current_page == "cleaner":
     colored_header(label="Tab 2: Data Cleaner & Anomaly Resolution", description="Automated pipeline fixes applied based on Data Quality Assessment.", color_name="orange-70")
+    st.markdown("<a href='?page=home' target='_self' style='color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
     c1.info("**Fix 1: Index Mapping Extraction**\n\nParsed 'Landing Page' URLs to extract missing `utm_campaign` tags.")
@@ -290,6 +361,7 @@ elif current_page == "cleaner":
 # ======================= PAGE 3: DATA ANALYSIS =======================
 elif current_page == "analysis":
     colored_header(label="Tab 3: Statistical Data Analysis", description="Regression models and Hypothesis testing.", color_name="green-70")
+    st.markdown("<a href='?page=home' target='_self' style='color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
     
     colA, colB = st.columns(2)
     with colA:
@@ -325,6 +397,7 @@ elif current_page == "analysis":
 # ======================= PAGE 4: INTERACTIVE DASHBOARD =======================
 elif current_page == "dashboard":
     colored_header(label="Tab 4: Interactive Dashboard", description="Cross-platform financial and operational insights.", color_name="light-blue-70")
+    st.markdown("<a href='?page=home' target='_self' style='color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
     
     if not master_df.empty:
         mc1, mc2, mc3 = st.columns(3)
@@ -353,6 +426,7 @@ elif current_page == "dashboard":
 # ======================= PAGE 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
     colored_header(label="Tab 5: Knowledge Graph", description="Network topology of Campaign Structure, Vendors, and Mediums.", color_name="violet-70")
+    st.markdown("<a href='?page=home' target='_self' style='color: #C41230; text-decoration: none; font-weight: bold;'>⭠ Back to 3D Home</a>", unsafe_allow_html=True)
     
     if not master_df.empty and 'Unique_Campaign_ID' in master_df.columns:
         G = nx.Graph()
