@@ -348,26 +348,26 @@ if current_page == "home":
 
         // PARTICLES
         const count = 25000; const pos = new Float32Array(count * 3); const colors = new Float32Array(count * 3);
-        const cmuRed = new THREE.Color(0xC41230); const indigo = new THREE.Color(0x6366f1); const teal = new THREE.Color(0x14b8a6);
+        const cmuRed = new THREE.Color(0xC41230); const cmuGray = new THREE.Color(0x6D6E71); const cmuBlack = new THREE.Color(0x000000);
         for(let i=0; i<count; i++){
             const r = 25 * Math.cbrt(Math.random()); const t = Math.random()*2*Math.PI; const p = Math.acos(2*Math.random()-1);
             pos[i*3] = r * Math.sin(p) * Math.cos(t); pos[i*3+1] = r * Math.sin(p) * Math.sin(t); pos[i*3+2] = r * Math.cos(p);
             const rand = Math.random();
-            let c = indigo;
-            if(rand > 0.8) c = cmuRed; else if(rand > 0.5) c = teal;
+            let c = cmuRed;
+            if(rand > 0.6) c = cmuGray; else if(rand > 0.3) c = cmuBlack;
             colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
         }
         const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        const mat = new THREE.PointsMaterial({size: 0.08, vertexColors: true, transparent: true, opacity: 0.5, blending: THREE.NormalBlending });
+        const mat = new THREE.PointsMaterial({size: 0.08, vertexColors: true, transparent: true, opacity: 0.8, blending: THREE.NormalBlending });
         scene.add(new THREE.Points(geo, mat));
 
         // TEXT CORE
         const loader = new THREE.FontLoader();
         loader.load('https://unpkg.com/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {
-            const textGeo = new THREE.TextGeometry('NEXUS', { font: font, size: 4, height: 1, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.05 });
+            const textGeo = new THREE.TextGeometry('CMU', { font: font, size: 6, height: 1, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.05 });
             textGeo.computeBoundingBox(); const centerOffset = -0.5 * (textGeo.boundingBox.max.x - textGeo.boundingBox.min.x);
             textGeo.translate(centerOffset, -1.2, 0);
-            const textMat = new THREE.MeshPhongMaterial({color: 0x1e293b, emissive: 0x0f172a, shininess: 80});
+            const textMat = new THREE.MeshPhongMaterial({color: 0xC41230, emissive: 0x6D091A, shininess: 80});
             scene.add(new THREE.Mesh(textGeo, textMat));
         });
 
@@ -469,6 +469,20 @@ elif current_page == "explorer":
             st.dataframe(profile, use_container_width=True)
         with t3:
             st.dataframe(df.describe(include='all').T, use_container_width=True)
+            
+        st.markdown("### 🤖 Auditor Insights")
+        if df.empty:
+            st.warning("The file is empty. I cannot provide insights.")
+        else:
+            missing = df.isna().mean().max() * 100
+            dupes = df.duplicated().sum()
+            txt = f"- **Data Completeness**: The highest missing value rate in any column is **{missing:.1f}%**.\n"
+            txt += f"- **Duplication Risk**: Found **{dupes}** duplicate rows.\n"
+            if "Total Spend" in df.columns or "Cost" in df.columns or "Spend" in df.columns or sum("cost" in c.lower() for c in df.columns) > 0:
+                txt += "- **Financial Data Detected**: Ensure that currency values are standardized before joining.\n"
+            if "Session campaign" in df.columns or "Campaign" in df.columns or "UTM campaign" in df.columns or sum("campaign" in c.lower() for c in df.columns) > 0:
+                txt += "- **UTM Keys Detected**: Proceed to the Alchemist to fuzzy match campaign names to Google IDs.\n"
+            st.info(txt)
     else:
         st.info("File not found in local 'data/' directory. Relying on pre-configured schema analysis above.")
 
@@ -481,7 +495,19 @@ elif current_page == "cleaner":
     except:
         st.header("Step 2: Data Alchemist")
 
-    st.success("Alchemist Pipeline applied fuzzy matching logic and strict type conversion.")
+    st.markdown("""
+    <div style="background-color: #f0fdf4; border-left: 4px solid #10b981; padding: 20px; border-radius: 0 12px 12px 0; margin-bottom: 30px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+        <h3 style="color: #064e3b; margin-top: 0;">What is the Alchemist doing?</h3>
+        <p style="color: #065f46; margin-bottom: 0;">
+        The Alchemist handles programmatic <strong>ETL (Extract, Transform, Load)</strong> operations and acts to sanitize and marry disparate datasets.<br><br>
+        <strong>1. Normalization:</strong> It removes special characters, unifies case (lowercase), and strips tracking parameters from Campaign names to create a unified 'utm_clean' primary key.<br>
+        <strong>2. Standardization:</strong> It aggressively cleans financial fields, removing currency symbols and commas, enforcing strict numeric data types to prevent analytical errors.<br>
+        <strong>3. Cross-Platform Joining:</strong> It merges isolated datasets (like Google Ads costs and Google Analytics traffic) using the newly sanitized primary key so we can effectively track ROI and cost-per-user metrics.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.success("Alchemist Pipeline applied fuzzy matching logic and strict type conversion to build the Master Hub.")
     st.dataframe(master_df, use_container_width=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
@@ -493,20 +519,45 @@ elif current_page == "analysis":
     except:
         st.header("Step 3: Quantitative Strategist")
     
+    st.markdown("""
+    <div style="background-color: #eef2ff; border-left: 4px solid #6366f1; padding: 20px; border-radius: 0 12px 12px 0; margin-bottom: 30px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+        <h3 style="color: #312e81; margin-top: 0;">What is the Strategist doing?</h3>
+        <p style="color: #3730a3; margin-bottom: 0;">
+        The Strategist employs quantitative reasoning to discover hidden correlations and optimize allocation. Instead of just showing numbers, it determines <i>relationships</i> between metrics.<br><br>
+        <strong>1. Statistical Regression:</strong> It measures the Pearson correlation coefficient between Spend and User Acquisition to determine if our marketing budget is scaling effectively.<br>
+        <strong>2. Distribution Clustering:</strong> It classifies campaigns into efficiency tiers, allowing us to find anomalies—campaigns that are draining budget without corresponding traffic.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
     if not master_df.empty:
-        c1, c2 = st.columns(2)
-        valid_data = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)]
+        c1, c2, c3 = st.columns(3)
+        valid_data = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)].copy()
         
         if len(valid_data) > 2 and valid_data['Total_Spend'].var() > 0 and valid_data['Total_Users'].var() > 0:
             corr, _ = stats.pearsonr(valid_data['Total_Spend'], valid_data['Total_Users'])
-            c1.metric("Spend-to-User Correlation (Pearson)", f"{corr:.2f}")
+            c1.metric("Spend-to-User Correlation (Pearson)", f"{corr:.2f}", help="1.0 is perfect correlation. 0 is none.")
             c2.metric("Significant Campaigns Tracked", len(valid_data))
+            c3.metric("Cost per Acquired User (Avg)", f"${valid_data['CPWU'].mean():.2f}")
+            
+            try:
+                valid_data['Efficiency Tier'] = pd.qcut(valid_data['CPWU'], q=3, labels=['High (Low CPA)', 'Medium', 'Low (High CPA)'])
+            except:
+                valid_data['Efficiency Tier'] = 'Unclassified'
+            
+            st.markdown("### Spend vs Users (Linear Regression)")
             st.plotly_chart(px.scatter(valid_data, x="Total_Spend", y="Total_Users", 
-                                       trendline="ols", color="Category", title="Efficiency Frontier: Regression Analysis"), use_container_width=True)
+                                       color="Category", title="Efficiency Frontier: Are we getting what we pay for?"), use_container_width=True)
+                                       
+            st.markdown("### Cost-Efficiency Tiering Analysis")
+            st.plotly_chart(px.scatter(valid_data, x="Total_Spend", y="CPWU", 
+                                       color="Efficiency Tier", size="Total_Users", hover_name="utm_clean",
+                                       title="Cluster Analysis: Identifying High-Spend, Low-Efficiency Campaigns"), use_container_width=True)
         else:
             c1.metric("Spend-to-User Correlation", "N/A")
             c2.metric("Significant Campaigns Tracked", len(valid_data))
-            st.warning("⚠️ Insufficient variance for Pearson Correlation. Check Alchemist step.")
+            c3.metric("Cost per Acquired User (Avg)", "N/A")
+            st.warning("⚠️ Insufficient variance for Statistical Modeling. Check Alchemist step.")
 
 # ======================= AGENT 4: VISUAL ARCHITECT (DASHBOARD) =======================
 elif current_page == "dashboard":
@@ -565,6 +616,18 @@ elif current_page == "dashboard":
     """, unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 20px; border-radius: 0 12px 12px 0; margin-bottom: 30px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+        <h3 style="color: #1e40af; margin-top: 0;">How to interpret the Architect Dashboard?</h3>
+        <p style="color: #1e3a8a; margin-bottom: 0;">
+        The Architect provides the final holistic visualization of your integrated data streams.<br><br>
+        <strong>- Temporal Velocity:</strong> The line chart shows growth over time. Are sessions scaling in accordance with the user base? Spikes might indicate successful seasonal campaigns.<br>
+        <strong>- Audience Resonance:</strong> CTR (Click-Through Rate) by audience segment reveals which demographic groups engage highest, guiding future ad-targeting allocation.<br>
+        <strong>- The Attention Economy:</strong> The scatter plot balances <i>depth</i> (session duration) vs. <i>breadth</i> (engagement rate). Bubble size denotes total user volume. It tells us whether large campaigns are actually keeping users interested, or just generating bounce traffic.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     colA, colB = st.columns(2)
     
@@ -586,7 +649,6 @@ elif current_page == "dashboard":
                       color_discrete_sequence=["#c084fc"])
         fig2.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
                            margin=dict(l=0,r=0,t=20,b=0))
-        fig2.update_traces(marker_border_radius=4)
         st.plotly_chart(fig2, use_container_width=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
@@ -614,15 +676,21 @@ elif current_page == "graph":
     
     if not master_df.empty:
         net = Network(height="650px", width="100%", bgcolor="#ffffff", font_color="#333", select_menu=True)
-        net.add_node("Nexus Hub", size=45, color="#1e293b", label="NEXUS CORE")
+        net.add_node("Nexus Hub", size=45, color="#C41230", label="CMU NEXUS")
+        
+        if 'Category' not in master_df.columns:
+            master_df['Category'] = 'Campaigns'
+        else:
+            master_df['Category'] = master_df['Category'].fillna('Uncategorized')
+            
         for cat in master_df['Category'].unique():
             if pd.notna(cat) and str(cat).strip() != "":
-                net.add_node(str(cat), size=25, color="#94a3b8")
+                net.add_node(str(cat), size=25, color="#6D6E71")
                 net.add_edge("Nexus Hub", str(cat))
                 cat_campaigns = master_df[master_df['Category'] == cat]['utm_clean'].dropna().unique()
-                for camp in cat_campaigns[:10]: 
+                for camp in cat_campaigns[:15]: 
                     if str(camp).strip() != "":
-                        net.add_node(str(camp), size=10, color="#6366f1", title=f"Campaign: {camp}")
+                        net.add_node(str(camp), size=12, color="#000000", title=f"Campaign: {camp}")
                         net.add_edge(str(cat), str(camp))
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
