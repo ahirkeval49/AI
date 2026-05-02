@@ -31,20 +31,20 @@ current_page = st.query_params["page"]
 # These live outside the iframe sandbox ensuring 100% reliable navigation.
 nav_cards_html = """
 <style>
-.nav-grid { display: flex; justify-content: center; gap: 20px; padding: 20px; flex-wrap: wrap; margin-bottom: 20px; }
+.nav-grid { display: flex; justify-content: center; gap: 20px; padding: 10px; flex-wrap: wrap; margin-bottom: 5px; position: relative; z-index: 100; }
 .nav-card {
-    background: #1A1A1A; border: 2px solid #333; border-radius: 12px; padding: 15px 20px;
-    width: 140px; text-align: center; color: white !important; text-decoration: none;
+    background: #ffffff; border: 2px solid #E0E0E0; border-radius: 12px; padding: 15px 20px;
+    width: 140px; text-align: center; color: #333 !important; text-decoration: none;
     transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); font-family: sans-serif;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }
 .nav-card:hover { 
     border-color: #C41230; transform: translateY(-8px) scale(1.05); 
-    background: #222; box-shadow: 0 10px 20px rgba(196,18,48,0.4); 
+    background: #FAFAFA; box-shadow: 0 10px 20px rgba(196,18,48,0.2); 
 }
 .nav-icon { font-size: 30px; margin-bottom: 8px; }
-.nav-title { font-size: 12px; font-weight: bold; letter-spacing: 1px; }
+.nav-title { font-size: 12px; font-weight: bold; letter-spacing: 1px; color: #C41230; }
 </style>
 <div class="nav-grid">
     <a href="?page=home" target="_self" class="nav-card"><div class="nav-icon">🏠</div><div class="nav-title">HOME</div></a>
@@ -55,7 +55,6 @@ nav_cards_html = """
     <a href="?page=graph" target="_self" class="nav-card"><div class="nav-icon">🕸️</div><div class="nav-title">GRAPH</div></a>
 </div>
 """
-st.markdown(nav_cards_html, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # 3. GLOBAL DATA PROCESSING LOGIC
@@ -164,24 +163,39 @@ index_df, ga_utm, melted_ga, gads_perf, linkedin_clean, master_df = build_master
 
 # ======================= PAGE: 3D HOME =======================
 if current_page == "home":
-    st.markdown("<h1 style='text-align: center; color: #C41230; font-weight: 800; margin-top: -20px;'>CMU DATA NEXUS</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #888;'>Explore the visual map. <b>Hover & click</b> a colored node, or use the navigation blocks above.</p>", unsafe_allow_html=True)
+    # Force full screen mode by removing Streamlit's default padding
+    st.markdown("""
+        <style>
+            .block-container { padding-top: 1rem; padding-bottom: 0rem; padding-left: 0rem; padding-right: 0rem; max-width: 100%; }
+            header { display: none !important; }
+        </style>
+    """, unsafe_allow_html=True)
     
-    # 3D Iframe with Raycaster (Hover & Click routing) + Particle Galaxy
-    three_js_galaxy = """
+    st.markdown(nav_cards_html, unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #C41230; font-weight: 800; margin-top: -10px; font-size: 42px;'>CMU DATA NEXUS</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #6D6E71;'>Explore the visual map. <b>Hover & click</b> a colored node.</p>", unsafe_allow_html=True)
+    
+    # 3D Iframe: White background, CMU Brand Particles, Full Screen Height
+    three_js_cmu_galaxy = """
     <!DOCTYPE html>
     <html>
     <head>
-        <style> body { margin: 0; overflow: hidden; background-color: #050505; border-radius: 12px; } </style>
+        <style> 
+            body { margin: 0; overflow: hidden; background-color: #ffffff; } 
+            canvas { display: block; width: 100vw; height: 100vh; }
+        </style>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     </head>
     <body>
         <script>
             const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(60, window.innerWidth / 600, 0.1, 1000);
-            const renderer = new THREE.WebGLRenderer({antialias: true});
-            renderer.setSize(window.innerWidth, 600);
+            scene.background = new THREE.Color(0xffffff); // White Background
+
+            const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({antialias: true, alpha: false});
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
             document.body.appendChild(renderer.domElement);
             
             const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -189,18 +203,55 @@ if current_page == "home":
             controls.autoRotate = true; 
             controls.autoRotateSpeed = 0.5;
 
-            // 1. Galaxy Background
+            // 1. CMU Brand Particle Galaxy
             const pCount = 15000;
             const pGeo = new THREE.BufferGeometry();
             const pos = new Float32Array(pCount * 3);
-            for(let i=0; i<pCount*3; i++) pos[i] = (Math.random()-0.5)*30;
+            const colors = new Float32Array(pCount * 3);
+
+            // CMU Official Colors
+            const cmuColors = [
+                new THREE.Color(0xC41230), // Tartan Red
+                new THREE.Color(0x222222), // Carnegie Black
+                new THREE.Color(0x6D6E71), // Iron Gray
+                new THREE.Color(0xE2C044)  // Gold (Accent)
+            ];
+
+            for(let i=0; i<pCount; i++) {
+                // Spherical distribution for a more galaxy-like shape
+                const r = 25 * Math.cbrt(Math.random());
+                const theta = Math.random() * 2 * Math.PI;
+                const phi = Math.acos(2 * Math.random() - 1);
+                
+                pos[i*3] = r * Math.sin(phi) * Math.cos(theta);
+                pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+                pos[i*3+2] = r * Math.cos(phi);
+
+                // Assign random CMU color
+                const c = cmuColors[Math.floor(Math.random() * cmuColors.length)];
+                colors[i*3] = c.r;
+                colors[i*3+1] = c.g;
+                colors[i*3+2] = c.b;
+            }
             pGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-            const pMat = new THREE.PointsMaterial({size: 0.015, color: 0xffffff, transparent: true, opacity: 0.6});
-            scene.add(new THREE.Points(pGeo, pMat));
+            pGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const pMat = new THREE.PointsMaterial({
+                size: 0.05, 
+                vertexColors: true, 
+                transparent: true, 
+                opacity: 0.6
+            });
+            const particleSystem = new THREE.Points(pGeo, pMat);
+            scene.add(particleSystem);
 
             // 2. CMU Core Volumetric Letters
             const bGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-            const bMat = new THREE.MeshStandardMaterial({color: 0xC41230, emissive: 0xC41230, emissiveIntensity: 0.2});
+            const bMat = new THREE.MeshStandardMaterial({
+                color: 0xC41230, 
+                roughness: 0.2,
+                metalness: 0.3
+            });
             const core = new THREE.Group();
             const coords = [
                 // C
@@ -229,8 +280,12 @@ if current_page == "home":
             
             nodesConfig.forEach((config, i) => {
                 const s = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.7, 32, 32), 
-                    new THREE.MeshStandardMaterial({color: config.color, emissive: config.color, emissiveIntensity: 0.5})
+                    new THREE.SphereGeometry(0.8, 32, 32), 
+                    new THREE.MeshStandardMaterial({
+                        color: config.color, 
+                        roughness: 0.1,
+                        metalness: 0.4
+                    })
                 );
                 const a = (i/5)*Math.PI*2;
                 s.position.set(Math.cos(a)*7, Math.sin(a)*2, Math.sin(a)*7);
@@ -239,22 +294,22 @@ if current_page == "home":
                 agents.push(s);
             });
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            // Lighting setup optimized for white background
+            scene.add(new THREE.AmbientLight(0xffffff, 0.9)); // Bright ambient
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
             dirLight.position.set(5, 10, 5);
             scene.add(dirLight);
 
-            camera.position.z = 15;
-            camera.position.y = 2;
+            camera.position.z = 16;
+            camera.position.y = 3;
 
             // 4. RAYCASTER LOGIC (HOVER AND CLICK)
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
 
             window.addEventListener('mousemove', (event) => {
-                const rect = renderer.domElement.getBoundingClientRect();
-                mouse.x = ( (event.clientX - rect.left) / rect.width ) * 2 - 1;
-                mouse.y = - ( (event.clientY - rect.top) / rect.height ) * 2 + 1;
+                mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+                mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
 
                 raycaster.setFromCamera(mouse, camera);
                 const intersects = raycaster.intersectObjects(agents);
@@ -284,10 +339,21 @@ if current_page == "home":
                 }
             });
 
+            // Handle window resize dynamically
+            window.addEventListener('resize', onWindowResize, false);
+            function onWindowResize() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+
             const clock = new THREE.Clock();
             function animate() { 
                 requestAnimationFrame(animate); 
                 const elapsedTime = clock.getElapsedTime();
+                
+                // Slow rotation for the entire galaxy
+                particleSystem.rotation.y = elapsedTime * 0.02;
                 
                 // Bobbing motion for nodes
                 agents.forEach(agent => {
@@ -302,10 +368,12 @@ if current_page == "home":
     </body>
     </html>
     """
-    components.html(three_js_galaxy, height=620)
+    # Render with 85vh to fill the screen while allowing the top nav to be visible
+    components.html(three_js_cmu_galaxy, height=850)
 
 # ======================= PAGE 1: MASTER DATA EXPLORER =======================
 elif current_page == "explorer":
+    st.markdown(nav_cards_html, unsafe_allow_html=True)
     colored_header(label="Tab 1: Master Data Explorer", description="View and filter all 12 raw data files.", color_name="yellow-70")
     
     selected_file = st.selectbox("Select a Dataset to Explore", ALL_FILES)
@@ -320,6 +388,7 @@ elif current_page == "explorer":
 
 # ======================= PAGE 2: DATA CLEANER =======================
 elif current_page == "cleaner":
+    st.markdown(nav_cards_html, unsafe_allow_html=True)
     colored_header(label="Tab 2: Data Cleaner & Anomaly Resolution", description="Automated pipeline fixes applied based on Data Quality Assessment.", color_name="orange-70")
     
     c1, c2, c3 = st.columns(3)
@@ -336,6 +405,7 @@ elif current_page == "cleaner":
 
 # ======================= PAGE 3: DATA ANALYSIS =======================
 elif current_page == "analysis":
+    st.markdown(nav_cards_html, unsafe_allow_html=True)
     colored_header(label="Tab 3: Statistical Data Analysis", description="Regression models and Hypothesis testing.", color_name="green-70")
     
     colA, colB = st.columns(2)
@@ -345,7 +415,7 @@ elif current_page == "analysis":
             top_camps = melted_ga.groupby('Session campaign')['User_Count'].sum().nlargest(5).index
             fig_trend = px.scatter(
                 melted_ga[melted_ga['Session campaign'].isin(top_camps)], 
-                x="Day_Number", y="User_Count", color="Session campaign", trendline="ols", template="plotly_dark"
+                x="Day_Number", y="User_Count", color="Session campaign", trendline="ols", template="plotly_white"
             )
             st.plotly_chart(fig_trend, use_container_width=True)
         else:
@@ -361,7 +431,7 @@ elif current_page == "analysis":
             
             if len(google_eng) > 0 and len(li_eng) > 0:
                 t_stat, p_val = stats.ttest_ind(google_eng, li_eng, equal_var=False)
-                style_metric_cards(background_color="#222", border_left_color="#44BBA4")
+                style_metric_cards(background_color="#FFFFFF", border_left_color="#44BBA4")
                 mc1, mc2 = st.columns(2)
                 mc1.metric("T-Statistic", f"{t_stat:.4f}")
                 mc2.metric("P-Value", f"{p_val:.4e}")
@@ -375,6 +445,7 @@ elif current_page == "analysis":
 
 # ======================= PAGE 4: INTERACTIVE DASHBOARD =======================
 elif current_page == "dashboard":
+    st.markdown(nav_cards_html, unsafe_allow_html=True)
     colored_header(label="Tab 4: Interactive Dashboard", description="Cross-platform financial and operational insights.", color_name="light-blue-70")
     
     if not master_df.empty:
@@ -386,7 +457,7 @@ elif current_page == "dashboard":
         mc1.metric("Total Spend Logged", f"${total_spend:,.2f}")
         mc2.metric("Total Users Acquired", f"{total_users:,.0f}")
         mc3.metric("Global Cost Per User", f"${avg_cpwu:.2f}")
-        style_metric_cards(background_color="#1E1E1E", border_left_color="#00A6D6")
+        style_metric_cards(background_color="#FFFFFF", border_left_color="#00A6D6")
         
         st.divider()
         st.subheader("Cross-Platform Campaign ROI Matrix")
@@ -399,7 +470,7 @@ elif current_page == "dashboard":
                 color='Category' if 'Category' in valid_master.columns else None,
                 hover_name="Unique_Campaign_ID" if 'Unique_Campaign_ID' in valid_master.columns else None,
                 labels={"Total_Combined_Spend": "Ad Spend ($)", "Total_Website_Users": "Website Users"},
-                template="plotly_dark", height=600
+                template="plotly_white", height=600
             )
             fig_roi.add_hline(y=valid_master['Total_Website_Users'].mean(), line_dash="dot", annotation_text="Avg Users")
             fig_roi.add_vline(x=valid_master['Total_Combined_Spend'].mean(), line_dash="dot", annotation_text="Avg Spend")
@@ -411,6 +482,7 @@ elif current_page == "dashboard":
 
 # ======================= PAGE 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
+    st.markdown(nav_cards_html, unsafe_allow_html=True)
     colored_header(label="Tab 5: Knowledge Graph", description="Network topology of Campaign Structure, Vendors, and Mediums.", color_name="violet-70")
     
     if not master_df.empty and 'Unique_Campaign_ID' in master_df.columns:
@@ -429,7 +501,7 @@ elif current_page == "graph":
             G.add_edge(category, campaign)
             G.add_edge(campaign, vendor)
 
-        net = Network(height="600px", width="100%", bgcolor="#111111", font_color="white", select_menu=True)
+        net = Network(height="600px", width="100%", bgcolor="#ffffff", font_color="black", select_menu=True)
         net.from_nx(G)
         net.repulsion(node_distance=150, spring_length=150)
         
@@ -441,3 +513,4 @@ elif current_page == "graph":
         components.html(html_data, height=650)
     else:
         st.warning("Insufficient categorical data loaded to generate Knowledge Graph.")
+        
