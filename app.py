@@ -182,10 +182,10 @@ if current_page == "home":
     <html>
     <head>
         <style> 
-            body { margin: 0; overflow: hidden; background-color: #000000; font-family: sans-serif; } 
+            body { margin: 0; overflow: hidden; background-color: #ffffff; font-family: sans-serif; } 
             canvas { display: block; width: 100vw; height: 100vh; }
             
-            /* UPDATED CSS FOR CLICKABLE TAGS */
+            /* CLICKABLE TAGS */
             .node-tab {
                 position: absolute; 
                 background: rgba(255, 255, 255, 0.95);
@@ -195,8 +195,8 @@ if current_page == "home":
                 font-weight: bold; 
                 font-size: 13px; 
                 color: #222 !important;
-                text-decoration: none; /* Removes the underline from the link */
-                pointer-events: auto; /* CRITICAL: Allows the tag to be clicked */
+                text-decoration: none; 
+                pointer-events: auto; 
                 cursor: pointer;
                 transform: translate(-50%, -150%);
                 box-shadow: 0 4px 8px rgba(0,0,0,0.1);
@@ -217,7 +217,7 @@ if current_page == "home":
     <body>
         <script>
             const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111111);
+            scene.background = new THREE.Color(0xffffff); // Set background to white
 
             const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
             const renderer = new THREE.WebGLRenderer({antialias: true, alpha: false});
@@ -239,7 +239,7 @@ if current_page == "home":
             const colorRed = new THREE.Color(0xC41230);
             const colorGray = new THREE.Color(0x6D6E71);
             const colorGold = new THREE.Color(0xE2C044);
-            const colorWhite = new THREE.Color(0xffffff);
+            const colorBlack = new THREE.Color(0x111111); // Black base so it shows on white bg
 
             for(let i=0; i<pCount; i++) {
                 const r = 25 * Math.cbrt(Math.random());
@@ -251,7 +251,7 @@ if current_page == "home":
                 pos[i*3+2] = r * Math.cos(phi);
 
                 const rand = Math.random();
-                let c = colorWhite;
+                let c = colorBlack;
                 if (rand > 0.70 && rand <= 0.85) c = colorRed;
                 else if (rand > 0.85 && rand <= 0.95) c = colorGray;
                 else if (rand > 0.95) c = colorGold;
@@ -330,15 +330,14 @@ if current_page == "home":
                 scene.add(s);
                 agents.push(s);
 
-                // THE NEW CLICKABLE ANCHOR TAG
+                // THE CLICKABLE ANCHOR TAG
                 const tabLink = document.createElement('a');
                 tabLink.className = 'node-tab';
                 tabLink.innerText = config.name;
-                tabLink.href = config.url;       // Set the URL link
-                tabLink.target = "_parent";      // Crucial: Break out of iframe
+                tabLink.href = config.url;       
+                tabLink.target = "_parent";      
                 tabLink.style.borderColor = '#' + config.color.toString(16).padStart(6, '0');
                 
-                // Optional: Stop 3D rotation on hover over the HTML button
                 tabLink.addEventListener('mouseenter', () => controls.autoRotateSpeed = 0.1);
                 tabLink.addEventListener('mouseleave', () => controls.autoRotateSpeed = 0.5);
 
@@ -353,7 +352,6 @@ if current_page == "home":
 
             camera.position.z = 16; camera.position.y = 3;
 
-            // Optional: Keep sphere Raycasting as a secondary backup
             const raycaster = new THREE.Raycaster();
             const mouse = new THREE.Vector2();
 
