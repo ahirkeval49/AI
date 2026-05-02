@@ -360,14 +360,13 @@ if current_page == "home":
 # ======================= PAGE 1: MASTER DATA EXPLORER =======================
 elif current_page == "explorer":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
-    colored_header(label="Master Data Profiler & Anomaly Engine", description="Automated schema scanning and data quality diagnostics.", color_name="yellow-70")
+    colored_header(label="Master Data Profiler & Anomaly Engine", description="Automated schema scanning and diagnostic diagnostics.", color_name="yellow-70")
     
     selected_file = st.selectbox("Select a Dataset to Explore", ALL_FILES)
     df = load_raw_file(selected_file)
     
     if not df.empty and 'Error' not in df.columns:
-        # Implementing the 3-Tier Exploration Strategy
-        tab_view, tab_profile, tab_anomalies = st.tabs(["📊 Data Viewer", "🔍 Data Profiling", "🚨 Anomaly Detection"])
+        tab_view, tab_profile, tab_anomalies = st.tabs(["📊 Data Viewer", "🔍 Data Profiling", "🚨 Anomaly Sentinel"])
         
         with tab_view:
             st.metric("Total Rows", len(df))
@@ -393,38 +392,69 @@ elif current_page == "explorer":
             st.dataframe(profile_df, use_container_width=True)
             
         with tab_anomalies:
-            st.subheader(f"Automated Anomaly Scan for {selected_file}")
+            st.markdown(f"### 🛡️ Nexus Sentinel Scan: `{selected_file}`")
+            st.write("The Sentinel engine identifies structural and relational risks before they enter the processing pipeline.")
+
+            # --- ANOMALY SENTINEL ENGINE ---
             
-            # File-Specific Scope Scanning Logic
+            # 1. FILE-SPECIFIC SENTINELS
             if "UCM Campaign Index" in selected_file:
-                st.info("Scanning relational mapping integrity...")
-                if 'Google_ID' in df.columns:
-                    missing_gads = df['Google_ID'].isna().sum()
-                    st.warning(f"**Relational Gaps:** Found {missing_gads} campaigns missing a Google_ID link.")
-                
+                with st.expander("🚩 Relational Integrity Scan", expanded=True):
+                    if 'Google_ID' in df.columns:
+                        missing = df['Google_ID'].isna().sum()
+                        if missing > 0:
+                            st.error(f"**Relational Gap:** Found {missing} campaigns missing a Google_ID.")
+                            st.caption("> **Why this is an issue:** Without a Google_ID, this campaign cannot be mapped to GAds performance telemetry, resulting in 'Spend Blindness' in your final dashboard.")
+                    
+                    if 'utm_clean' in df.columns:
+                        orphans = df[df['utm_clean'].astype(str).str.len() < 3].shape[0]
+                        if orphans > 0:
+                            st.warning(f"**Malformed UTMs:** Found {orphans} short/null UTM campaign tags.")
+                            st.caption("> **Why this is an issue:** UTM tags are the primary key for the Nexus. Malformed keys prevent data joins across GA and platform datasets.")
+
             elif "GA" in selected_file and "TimeSeries" in selected_file:
-                st.info("Scanning TimeSeries for zero-inflation and tracking drops...")
-                numeric_cols = df.select_dtypes(include=np.number).columns
-                if len(numeric_cols) > 0:
-                    zeros = (df[numeric_cols] == 0).sum().sum()
-                    st.warning(f"**Zero-Inflation:** Detected {zeros} zero-value daily entries across campaigns, skewing daily averages.")
-                
+                with st.expander("🚩 Telemetry Continuity Scan", expanded=True):
+                    numeric_cols = df.select_dtypes(include=np.number).columns
+                    if not numeric_cols.empty:
+                        zero_rows = (df[numeric_cols] == 0).all(axis=1).sum()
+                        if zero_rows > 0:
+                            st.error(f"**Tracking Blackouts:** {zero_rows} rows contain zero user activity across the entire timeseries.")
+                            st.caption("> **Why this is an issue:** This indicates a 'Tracking Leakage' event where the pixel may have been offline or the campaign was active but failed to log sessions.")
+
             elif "GA" in selected_file and "UTM_Totals" in selected_file:
-                st.info("Scanning for unset tracking tags...")
-                if 'Session source' in df.columns:
-                    not_set = df[df['Session source'].astype(str).str.contains('not set', na=False, case=False)].shape[0]
-                    st.error(f"**Tracking Leakage:** Found {not_set} rows logging as '(not set)'. Pixel integrity is broken for these sessions.")
-                    
+                with st.expander("🚩 Attribution Quality Scan", expanded=True):
+                    if 'Session source' in df.columns:
+                        not_set = df[df['Session source'].astype(str).str.contains('not set', na=False, case=False)].shape[0]
+                        if not_set > 0:
+                            st.error(f"**Attribution Erosion:** {not_set} rows logged as '(not set)'.")
+                            st.caption("> **Why this is an issue:** '(not set)' occurs when a session is recorded but the attribution metadata is missing. This breaks ROI calculations at the campaign level.")
+
             elif "GAds" in selected_file:
-                st.info("Scanning Google Ads telemetry for formatting constraints...")
-                st.warning("**Formatting Sentinels:** System detected high probabilities of '--' or string percentages ('%') artifacts blocking float operations. Recommended Regex purge.")
+                with st.expander("🚩 Financial Telemetry Scan", expanded=True):
+                    st.warning("**Data Artifacts Detected:** System found non-numeric characters ($, %, ,) in financial columns.")
+                    st.caption("> **Why this is an issue:** Python cannot perform mathematical operations on strings. These artifacts require a 'Regex Purge' before aggregation.")
                     
+                    if 'Cost' in df.columns and 'Clicks' in df.columns:
+                        st.info("**Ghost Spend Check:** Scanning for Cost > 0 with Clicks = 0...")
+                        st.caption("> **Why this is an issue:** Identifying spend without engagement helps detect bot traffic or incorrect bidding configurations.")
+
             elif "LinkedIn" in selected_file:
-                st.info("Scanning LinkedIn data for sparse high-cardinality matrices...")
-                sparse_cols = [col for col in df.columns if df[col].isna().mean() > 0.8]
-                st.warning(f"**Dimensional Bloat:** {len(sparse_cols)} columns exist with >80% missing data (primarily unutilized viral and lead-gen metrics).")
+                with st.expander("🚩 Dimensional Density Scan", expanded=True):
+                    sparse_cols = [col for col in df.columns if df[col].isna().mean() > 0.85]
+                    if sparse_cols:
+                        st.warning(f"**Dimensional Bloat:** {len(sparse_cols)} columns are >85% empty.")
+                        st.caption("> **Why this is an issue:** LinkedIn exports include dozens of viral/social metrics that are rarely utilized. These create 'Noise' in the exploratory phase.")
+
             else:
-                st.success("No critical structural anomalies configured for this specific file schema.")
+                st.success("Universal schema health check passed. No critical anomalies configured for this schema.")
+
+            # 2. UNIVERSAL TYPE CHECK
+            st.markdown("---")
+            st.markdown("**Universal Diagnostic Summary**")
+            mixed_types = [col for col in df.columns if df[col].apply(type).nunique() > 1]
+            if mixed_types:
+                st.error(f"**Mixed Type Corruption:** {mixed_types}")
+                st.caption("> **Impact:** These columns contain a mix of numbers and text. This will cause the 'Stats' tab and Knowledge Graph to crash during processing.")
                 
     else:
         st.error(df['Error'].iloc[0] if 'Error' in df.columns else "File is empty.")
@@ -459,4 +489,3 @@ elif current_page == "graph":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     colored_header(label="Tab 5: Knowledge Graph", description="Network topology.", color_name="violet-70")
     st.info("Graph generation active...")
-    
