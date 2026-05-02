@@ -28,7 +28,7 @@ def get_base64_of_bin_file(bin_file):
     except: return ""
 
 # ---------------------------------------------------------
-# 2. THE ALCHEMIST ENGINE: DEFENSIVE ETL
+# 2. THE ALCHEMIST ENGINE: AGGRESSIVE NORMALIZATION
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -40,22 +40,29 @@ ALL_FILES = [
 ]
 
 def find_col(df, aliases):
+    """Scouts for column variations."""
     for alias in aliases:
         if alias in df.columns: return alias
     return None
 
 def clean_currency(series):
-    # Ensure it's treated as a string, remove artifacts, convert to float
+    """Removes currency artifacts ($ , %) and converts to float."""
     return pd.to_numeric(series.astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0.0)
+
+def normalize_key(series):
+    """THE FIX: Aggressive Alphanumeric Normalization. 
+    Strips ALL spaces, underscores, and dashes to force perfect matches."""
+    return series.astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True).replace('nan', '')
 
 @st.cache_data
 def build_master_hub():
+    """Agent 2 (Alchemist) Synthesis."""
     try:
-        # Load Index
+        # Load Index (Source of Truth)
         if os.path.exists('data/UCM Campaign Index.csv'):
             idx = pd.read_csv('data/UCM Campaign Index.csv')
             utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID', 'Landing Page (UTM)'])
-            idx['utm_clean'] = idx[utm_col].astype(str).str.lower().str.strip() if utm_col else ""
+            idx['utm_clean'] = normalize_key(idx[utm_col]) if utm_col else ""
             if 'Category' not in idx.columns: idx['Category'] = "Uncategorized"
         else:
             return pd.DataFrame()
@@ -65,9 +72,10 @@ def build_master_hub():
         g_dfs = [pd.read_csv(f'data/{f}') for f in g_files if os.path.exists(f'data/{f}')]
         g_all = pd.concat(g_dfs, ignore_index=True) if g_dfs else pd.DataFrame()
         if not g_all.empty:
-            g_key = find_col(g_all, ['Ad name', 'Campaign', 'Campaign Name'])
-            g_all['utm_clean'] = g_all[g_key].astype(str).str.lower().str.strip()
-            g_all['Cost'] = clean_currency(g_all['Cost']) if 'Cost' in g_all.columns else 0.0
+            g_key = find_col(g_all, ['Ad name', 'Campaign', 'Campaign Name', 'Campaign state'])
+            g_all['utm_clean'] = normalize_key(g_all[g_key]) if g_key else ""
+            g_cost_col = find_col(g_all, ['Cost', 'Spend'])
+            g_all['Cost'] = clean_currency(g_all[g_cost_col]) if g_cost_col else 0.0
             g_agg = g_all.groupby('utm_clean').agg(GAds_Spend=('Cost', 'sum')).reset_index()
         else:
             g_agg = pd.DataFrame(columns=['utm_clean', 'GAds_Spend'])
@@ -77,7 +85,7 @@ def build_master_hub():
         if os.path.exists(li_path):
             li = pd.read_csv(li_path)
             li_key = find_col(li, ['Campaign Name', 'Campaign'])
-            li['utm_clean'] = li[li_key].astype(str).str.lower().str.strip()
+            li['utm_clean'] = normalize_key(li[li_key]) if li_key else ""
             li_spend = find_col(li, ['Total Spend', 'Spend', 'Cost'])
             li['LI_Spend'] = clean_currency(li[li_spend]) if li_spend else 0.0
             li_agg = li.groupby('utm_clean').agg(LI_Spend=('LI_Spend', 'sum')).reset_index()
@@ -92,8 +100,9 @@ def build_master_hub():
                 _df = pd.read_csv(f'data/{f}', skiprows=1)
                 ga_key = find_col(_df, ['Session campaign', 'Campaign'])
                 if ga_key:
-                    _df['utm_clean'] = _df[ga_key].astype(str).str.lower().str.strip()
-                    _df['Total users'] = pd.to_numeric(_df['Total users'], errors='coerce').fillna(0.0)
+                    _df['utm_clean'] = normalize_key(_df[ga_key])
+                    ga_users_col = find_col(_df, ['Total users', 'Users'])
+                    _df['Total users'] = pd.to_numeric(_df[ga_users_col], errors='coerce').fillna(0.0) if ga_users_col else 0.0
                     ga_dfs.append(_df[['utm_clean', 'Total users']])
         ga_agg = pd.concat(ga_dfs).groupby('utm_clean').agg(Total_Users=('Total users', 'sum')).reset_index() if ga_dfs else pd.DataFrame(columns=['utm_clean', 'Total_Users'])
 
@@ -122,11 +131,11 @@ nav_cards_html = """
 .nav-grid { display: flex; justify-content: center; gap: 15px; padding: 10px; margin-bottom: 5px; }
 .nav-card {
     background: #fff; border: 2px solid #E0E0E0; border-radius: 12px; padding: 10px;
-    width: 125px; text-align: center; color: #333 !important; text-decoration: none;
+    width: 130px; text-align: center; color: #333 !important; text-decoration: none;
     transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 .nav-card:hover { border-color: #C41230; transform: translateY(-5px); box-shadow: 0 8px 15px rgba(196,18,48,0.2); }
-.nav-title { font-size: 9px; font-weight: 800; color: #C41230; margin-top: 5px; }
+.nav-title { font-size: 10px; font-weight: 900; color: #C41230; margin-top: 5px; }
 </style>
 <div class="nav-grid">
     <a href="?page=home" target="_self" class="nav-card">🏠<div class="nav-title">HOME</div></a>
@@ -245,7 +254,8 @@ elif current_page == "explorer":
             profile = pd.DataFrame({'Type': df.dtypes.astype(str), 'Nulls': df.isna().sum(), 'Unique': df.nunique()})
             st.dataframe(profile, use_container_width=True)
         with t3:
-            st.dataframe(df.describe(include='all').T, use_container_width=True)
+            # Drop strings for clean statistical describe
+            st.dataframe(df.describe().T, use_container_width=True)
     else:
         st.error("File not found in data directory.")
 
@@ -253,10 +263,14 @@ elif current_page == "explorer":
 elif current_page == "cleaner":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     from streamlit_extras.colored_header import colored_header
-    colored_header("Step 2: Data Alchemist", "Synthesized Master Hub: ETL execution and anomaly patching.")
+    colored_header("Step 2: Data Alchemist", "Synthesized Master Hub: Aggressive UTM matching applied.")
     
-    if not master_df.empty and master_df['Total_Spend'].sum() == 0:
-        st.warning("⚠️ ALCHEMIST ALERT: Master Hub generated, but Total Spend is $0. The Join keys (utm_campaign) between the Index and Performance files did not match. Please verify UTM naming conventions in raw files.")
+    if not master_df.empty:
+        total_spend = master_df['Total_Spend'].sum()
+        if total_spend == 0:
+            st.warning("⚠️ ALCHEMIST ALERT: Master Hub generated, but Total Spend is $0. Aggressive alphanumeric matching failed to find overlapping keys. Verify file headers.")
+        else:
+            st.success(f"Join Successful! Matched ${total_spend:,.2f} in marketing spend across datasets.")
     
     st.dataframe(master_df, use_container_width=True)
 
@@ -268,18 +282,18 @@ elif current_page == "analysis":
     
     if not master_df.empty:
         c1, c2 = st.columns(2)
-        # DEFENSIVE CHECK: Prevent SciPy KeyError / Zero Variance Crash
-        if master_df['Total_Spend'].var() > 0 and master_df['Total_Users'].var() > 0:
-            corr, _ = stats.pearsonr(master_df['Total_Spend'], master_df['Total_Users'])
+        valid_data = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)]
+        
+        if len(valid_data) > 2 and valid_data['Total_Spend'].var() > 0 and valid_data['Total_Users'].var() > 0:
+            corr, _ = stats.pearsonr(valid_data['Total_Spend'], valid_data['Total_Users'])
             c1.metric("Spend-to-User Correlation (Pearson)", f"{corr:.2f}")
-            c2.metric("Significant Campaigns Tracked", len(master_df[master_df['Total_Spend'] > 0]))
-            
-            st.plotly_chart(px.scatter(master_df[master_df['Total_Spend']>0], x="Total_Spend", y="Total_Users", 
-                                       trendline="ols", color="Category", title="Efficiency Frontier: Real Regression Analysis"), use_container_width=True)
+            c2.metric("Significant Campaigns Tracked", len(valid_data))
+            st.plotly_chart(px.scatter(valid_data, x="Total_Spend", y="Total_Users", 
+                                       trendline="ols", color="Category", title="Efficiency Frontier: Regression Analysis"), use_container_width=True)
         else:
-            c1.metric("Spend-to-User Correlation", "N/A (Zero Variance)")
-            c2.metric("Significant Campaigns Tracked", "0")
-            st.error("🚨 Strategist Warning: Variance is zero. There is no mapped spend data to calculate regression. The Alchemist join failed due to unmatched UTM tags.")
+            c1.metric("Spend-to-User Correlation", "N/A")
+            c2.metric("Significant Campaigns Tracked", len(valid_data))
+            st.warning("⚠️ Insufficient variance for Pearson Correlation. Ensure Agent 2 successfully joined Spend and User data.")
 
 # ======================= AGENT 4: VISUAL ARCHITECT =======================
 elif current_page == "dashboard":
@@ -293,11 +307,11 @@ elif current_page == "dashboard":
         categories = master_df['Category'].dropna().unique().tolist()
         selected_cats = st.sidebar.multiselect("Filter by Category", categories, default=categories)
         
-        # DEFENSIVE SLIDER: Prevent Streamlit API Exception
-        max_spend = float(master_df['Total_Spend'].max())
+        # DEFENSIVE SLIDER LOGIC
+        max_spend = float(master_df['Total_Spend'].max()) if not master_df.empty else 0.0
         if pd.isna(max_spend) or max_spend <= 0.0:
-            max_spend = 1.0 # Minimum valid range to prevent crash
-            st.sidebar.warning("No Spend Data available to filter.")
+            max_spend = 1.0 # Safe fallback to prevent Streamlit exception
+            st.sidebar.warning("Warning: Max spend is 0. Slider range artificially set to 1.0 to prevent crash.")
             
         spend_range = st.sidebar.slider("Filter by Total Spend", 0.0, max_spend, (0.0, max_spend))
         
@@ -327,7 +341,7 @@ elif current_page == "dashboard":
             
         st.dataframe(filtered_df[['utm_clean', 'Category', 'Total_Spend', 'Total_Users', 'CPWU']].sort_values(by="Total_Spend", ascending=False), use_container_width=True)
     else:
-        st.warning("Master Hub is empty. Check Alchemist module.")
+        st.error("Master Hub is empty.")
 
 # ======================= AGENT 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
@@ -339,13 +353,14 @@ elif current_page == "graph":
         net = Network(height="650px", width="100%", bgcolor="#ffffff", font_color="#333")
         net.add_node("Nexus Hub", size=45, color="#C41230", label="NEXUS CORE")
         for cat in master_df['Category'].unique():
-            if pd.notna(cat):
+            if pd.notna(cat) and cat != "":
                 net.add_node(str(cat), size=25, color="#6D6E71")
                 net.add_edge("Nexus Hub", str(cat))
                 cat_campaigns = master_df[master_df['Category'] == cat]['utm_clean'].dropna().unique()
                 for camp in cat_campaigns[:10]: 
-                    net.add_node(str(camp), size=10, color="#E2C044", title=f"Campaign: {camp}")
-                    net.add_edge(str(cat), str(camp))
+                    if str(camp).strip() != "":
+                        net.add_node(str(camp), size=10, color="#E2C044", title=f"Campaign: {camp}")
+                        net.add_edge(str(cat), str(camp))
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
             net.save_graph(tmp.name)
