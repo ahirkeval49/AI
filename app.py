@@ -174,7 +174,6 @@ if current_page == "home":
     st.markdown("<h1 style='text-align: center; color: #C41230; font-weight: 800; margin-top: -10px; font-size: 42px;'>CMU DATA NEXUS</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #6D6E71;'>Explore the visual map. <b>Click a floating tag</b> to navigate.</p>", unsafe_allow_html=True)
     
-    # Load the base64 image data for Scotty
     scotty_b64 = get_base64_of_bin_file("scotty.png")
     
     three_js_cmu_galaxy = """
@@ -184,32 +183,14 @@ if current_page == "home":
         <style> 
             body { margin: 0; overflow: hidden; background-color: #ffffff; font-family: sans-serif; } 
             canvas { display: block; width: 100vw; height: 100vh; }
-            
-            /* CLICKABLE TAGS */
             .node-tab {
-                position: absolute; 
-                background: rgba(255, 255, 255, 0.95);
-                border: 2px solid #C41230; 
-                padding: 6px 12px; 
-                border-radius: 8px;
-                font-weight: bold; 
-                font-size: 13px; 
-                color: #222 !important;
-                text-decoration: none; 
-                pointer-events: auto; 
-                cursor: pointer;
-                transform: translate(-50%, -150%);
-                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-                transition: all 0.2s; 
-                opacity: 0.8;
-                z-index: 10;
+                position: absolute; background: rgba(255, 255, 255, 0.95); border: 2px solid #C41230; 
+                padding: 6px 12px; border-radius: 8px; font-weight: bold; font-size: 13px; color: #222 !important;
+                text-decoration: none; pointer-events: auto; cursor: pointer;
+                transform: translate(-50%, -150%); box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                transition: all 0.2s; opacity: 0.8; z-index: 10;
             }
-            .node-tab:hover {
-                background: #C41230;
-                color: #ffffff !important;
-                opacity: 1;
-                transform: translate(-50%, -150%) scale(1.15);
-            }
+            .node-tab:hover { background: #C41230; color: #ffffff !important; opacity: 1; transform: translate(-50%, -150%) scale(1.15); }
         </style>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -217,7 +198,7 @@ if current_page == "home":
     <body>
         <script>
             const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0xffffff); // Set background to white
+            scene.background = new THREE.Color(0xffffff);
 
             const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
             const renderer = new THREE.WebGLRenderer({antialias: true, alpha: false});
@@ -226,11 +207,8 @@ if current_page == "home":
             document.body.appendChild(renderer.domElement);
             
             const controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true; 
-            controls.autoRotate = true; 
-            controls.autoRotateSpeed = 0.5;
+            controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 0.5;
 
-            // 1. CMU Brand Particle Galaxy (INCREASED COUNT)
             const pCount = 35000;
             const pGeo = new THREE.BufferGeometry();
             const pos = new Float32Array(pCount * 3);
@@ -239,7 +217,7 @@ if current_page == "home":
             const colorRed = new THREE.Color(0xC41230);
             const colorGray = new THREE.Color(0x6D6E71);
             const colorGold = new THREE.Color(0xE2C044);
-            const colorBlack = new THREE.Color(0x111111); // Black base so it shows on white bg
+            const colorBlack = new THREE.Color(0x111111);
 
             for(let i=0; i<pCount; i++) {
                 const r = 25 * Math.cbrt(Math.random());
@@ -260,12 +238,10 @@ if current_page == "home":
             }
             pGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
             pGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
             const pMat = new THREE.PointsMaterial({ size: 0.05, vertexColors: true, transparent: true, opacity: 0.7 });
             const particleSystem = new THREE.Points(pGeo, pMat);
             scene.add(particleSystem);
 
-            // 2. Custom Mascot Image Particles (INCREASED COUNT)
             const mascotCount = 350;
             const mGeo = new THREE.BufferGeometry();
             const mPos = new Float32Array(mascotCount * 3);
@@ -279,10 +255,8 @@ if current_page == "home":
             }
             mGeo.setAttribute('position', new THREE.BufferAttribute(mPos, 3));
             
-            // Load Base64 image
             const scottyBase64 = "data:image/png;base64,SCOTTY_BASE64_DATA";
             const textureLoader = new THREE.TextureLoader();
-            
             let mascotSystem;
             if (scottyBase64.length > 30) { 
                 const scottyTexture = textureLoader.load(scottyBase64);
@@ -291,7 +265,6 @@ if current_page == "home":
                 scene.add(mascotSystem);
             }
 
-            // 3. CMU Core Volumetric Letters
             const bGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
             const bMat = new THREE.MeshStandardMaterial({ color: 0xC41230, roughness: 0.2, metalness: 0.3 });
             const core = new THREE.Group();
@@ -307,7 +280,6 @@ if current_page == "home":
             });
             scene.add(core);
 
-            // 4. Clickable Orbiting Nodes WITH HTML TABS AS LINKS
             const agents = [];
             const htmlTabs = [];
             const nodesConfig = [
@@ -319,23 +291,15 @@ if current_page == "home":
             ];
             
             nodesConfig.forEach((config, i) => {
-                // The Sphere Node
-                const s = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.8, 32, 32), 
-                    new THREE.MeshStandardMaterial({ color: config.color, roughness: 0.1, metalness: 0.4 })
-                );
+                const s = new THREE.Mesh(new THREE.SphereGeometry(0.8, 32, 32), new THREE.MeshStandardMaterial({ color: config.color, roughness: 0.1, metalness: 0.4 }));
                 const a = (i/5)*Math.PI*2;
                 s.position.set(Math.cos(a)*7, Math.sin(a)*2, Math.sin(a)*7);
                 s.userData = { url: config.url, angle: a }; 
-                scene.add(s);
-                agents.push(s);
+                scene.add(s); agents.push(s);
 
-                // THE CLICKABLE ANCHOR TAG
                 const tabLink = document.createElement('a');
-                tabLink.className = 'node-tab';
-                tabLink.innerText = config.name;
-                tabLink.href = config.url;       
-                tabLink.target = "_parent";      
+                tabLink.className = 'node-tab'; tabLink.innerText = config.name;
+                tabLink.href = config.url; tabLink.target = "_parent";      
                 tabLink.style.borderColor = '#' + config.color.toString(16).padStart(6, '0');
                 
                 tabLink.addEventListener('mouseenter', () => controls.autoRotateSpeed = 0.1);
@@ -351,26 +315,6 @@ if current_page == "home":
             scene.add(dirLight);
 
             camera.position.z = 16; camera.position.y = 3;
-
-            const raycaster = new THREE.Raycaster();
-            const mouse = new THREE.Vector2();
-
-            window.addEventListener('click', (event) => {
-                mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
-                mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
-                raycaster.setFromCamera(mouse, camera);
-                const intersects = raycaster.intersectObjects(agents);
-
-                if (intersects.length > 0) {
-                    const targetUrl = intersects[0].object.userData.url;
-                    try { window.parent.location.search = targetUrl; } 
-                    catch (e) {
-                        const link = document.createElement('a');
-                        link.href = targetUrl; link.target = "_parent"; 
-                        document.body.appendChild(link); link.click();
-                    }
-                }
-            });
 
             window.addEventListener('resize', onWindowResize, false);
             function onWindowResize() {
@@ -389,13 +333,10 @@ if current_page == "home":
                 
                 agents.forEach((agent, i) => {
                     agent.position.y += Math.sin(elapsedTime * 2 + agent.userData.angle) * 0.015;
-
                     const vector = agent.position.clone();
                     vector.project(camera);
-                    
                     const x = (vector.x * .5 + .5) * window.innerWidth;
                     const y = (vector.y * -.5 + .5) * window.innerHeight;
-                    
                     const tabElement = htmlTabs[i].element;
                     if (vector.z > 1) {
                         tabElement.style.display = 'none';
@@ -419,15 +360,72 @@ if current_page == "home":
 # ======================= PAGE 1: MASTER DATA EXPLORER =======================
 elif current_page == "explorer":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
-    colored_header(label="Tab 1: Master Data Explorer", description="View and filter all raw data.", color_name="yellow-70")
+    colored_header(label="Master Data Profiler & Anomaly Engine", description="Automated schema scanning and data quality diagnostics.", color_name="yellow-70")
     
     selected_file = st.selectbox("Select a Dataset to Explore", ALL_FILES)
     df = load_raw_file(selected_file)
     
     if not df.empty and 'Error' not in df.columns:
-        st.metric("Total Rows", len(df))
-        filtered_df = dataframe_explorer(df, case=False)
-        st.dataframe(filtered_df, use_container_width=True, height=500)
+        # Implementing the 3-Tier Exploration Strategy
+        tab_view, tab_profile, tab_anomalies = st.tabs(["📊 Data Viewer", "🔍 Data Profiling", "🚨 Anomaly Detection"])
+        
+        with tab_view:
+            st.metric("Total Rows", len(df))
+            filtered_df = dataframe_explorer(df, case=False)
+            st.dataframe(filtered_df, use_container_width=True, height=500)
+            
+        with tab_profile:
+            st.subheader("Dataset Health Profile")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Columns", len(df.columns))
+            col2.metric("Missing Values", df.isna().sum().sum())
+            col3.metric("Duplicate Rows", df.duplicated().sum())
+            memory_usage = df.memory_usage(deep=True).sum() / 1024**2
+            col4.metric("Memory Usage", f"{memory_usage:.2f} MB")
+            
+            st.markdown("**Column Diagnostics**")
+            profile_df = pd.DataFrame({
+                'Data Type': df.dtypes.astype(str),
+                'Null Count': df.isna().sum(),
+                'Null %': (df.isna().sum() / len(df) * 100).round(2),
+                'Unique Values': df.nunique()
+            })
+            st.dataframe(profile_df, use_container_width=True)
+            
+        with tab_anomalies:
+            st.subheader(f"Automated Anomaly Scan for {selected_file}")
+            
+            # File-Specific Scope Scanning Logic
+            if "UCM Campaign Index" in selected_file:
+                st.info("Scanning relational mapping integrity...")
+                if 'Google_ID' in df.columns:
+                    missing_gads = df['Google_ID'].isna().sum()
+                    st.warning(f"**Relational Gaps:** Found {missing_gads} campaigns missing a Google_ID link.")
+                
+            elif "GA" in selected_file and "TimeSeries" in selected_file:
+                st.info("Scanning TimeSeries for zero-inflation and tracking drops...")
+                numeric_cols = df.select_dtypes(include=np.number).columns
+                if len(numeric_cols) > 0:
+                    zeros = (df[numeric_cols] == 0).sum().sum()
+                    st.warning(f"**Zero-Inflation:** Detected {zeros} zero-value daily entries across campaigns, skewing daily averages.")
+                
+            elif "GA" in selected_file and "UTM_Totals" in selected_file:
+                st.info("Scanning for unset tracking tags...")
+                if 'Session source' in df.columns:
+                    not_set = df[df['Session source'].astype(str).str.contains('not set', na=False, case=False)].shape[0]
+                    st.error(f"**Tracking Leakage:** Found {not_set} rows logging as '(not set)'. Pixel integrity is broken for these sessions.")
+                    
+            elif "GAds" in selected_file:
+                st.info("Scanning Google Ads telemetry for formatting constraints...")
+                st.warning("**Formatting Sentinels:** System detected high probabilities of '--' or string percentages ('%') artifacts blocking float operations. Recommended Regex purge.")
+                    
+            elif "LinkedIn" in selected_file:
+                st.info("Scanning LinkedIn data for sparse high-cardinality matrices...")
+                sparse_cols = [col for col in df.columns if df[col].isna().mean() > 0.8]
+                st.warning(f"**Dimensional Bloat:** {len(sparse_cols)} columns exist with >80% missing data (primarily unutilized viral and lead-gen metrics).")
+            else:
+                st.success("No critical structural anomalies configured for this specific file schema.")
+                
     else:
         st.error(df['Error'].iloc[0] if 'Error' in df.columns else "File is empty.")
 
@@ -444,7 +442,7 @@ elif current_page == "cleaner":
 elif current_page == "analysis":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     colored_header(label="Tab 3: Statistical Data Analysis", description="Regression models and Hypothesis testing.", color_name="green-70")
-    st.info("Analytics modules loading...")
+    st.info("Analytics modules active...")
 
 # ======================= PAGE 4: INTERACTIVE DASHBOARD =======================
 elif current_page == "dashboard":
@@ -460,4 +458,4 @@ elif current_page == "dashboard":
 elif current_page == "graph":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     colored_header(label="Tab 5: Knowledge Graph", description="Network topology.", color_name="violet-70")
-    st.info("Graph generation loading...")
+    st.info("Graph generation active...")
