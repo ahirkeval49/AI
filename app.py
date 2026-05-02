@@ -28,7 +28,7 @@ def get_base64_of_bin_file(bin_file):
     except: return ""
 
 # ---------------------------------------------------------
-# 2. THE ALCHEMIST ENGINE: DEFENSIVE ETL & REAL DATA SYNTHESIS
+# 2. THE ALCHEMIST ENGINE: STRICT TYPE CASTING
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -40,23 +40,24 @@ ALL_FILES = [
 ]
 
 def find_col(df, aliases):
-    """Prevents KeyErrors by scouting for column variations."""
     for alias in aliases:
         if alias in df.columns: return alias
     return None
 
 def clean_currency(series):
-    return pd.to_numeric(series.astype(str).str.replace(r'[,\%\$]', '', regex=True), errors='coerce').fillna(0)
+    return pd.to_numeric(series.astype(str).str.replace(r'[,\%\$]', '', regex=True), errors='coerce').fillna(0.0)
 
 @st.cache_data
 def build_master_hub():
-    """Agent 2 (Alchemist) Synthesis: Joining all 12 Real Data Files."""
     try:
         # Load Index
-        idx = pd.read_csv('data/UCM Campaign Index.csv')
-        utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID'])
-        idx['utm_clean'] = idx[utm_col].astype(str).str.lower().str.strip() if utm_col else ""
-        if 'Category' not in idx.columns: idx['Category'] = "Uncategorized"
+        if os.path.exists('data/UCM Campaign Index.csv'):
+            idx = pd.read_csv('data/UCM Campaign Index.csv')
+            utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID'])
+            idx['utm_clean'] = idx[utm_col].astype(str).str.lower().str.strip() if utm_col else ""
+            if 'Category' not in idx.columns: idx['Category'] = "Uncategorized"
+        else:
+            return pd.DataFrame()
 
         # GAds Pipeline
         g_files = ['GAds_FY25_Totals_Jul2024-Jun2025.csv', 'GAds_FY26_Totals_Jul-Dec2025.csv']
@@ -65,7 +66,7 @@ def build_master_hub():
         if not g_all.empty:
             g_key = find_col(g_all, ['Ad name', 'Campaign', 'Campaign Name'])
             g_all['utm_clean'] = g_all[g_key].astype(str).str.lower().str.strip()
-            g_all['Cost'] = clean_currency(g_all['Cost']) if 'Cost' in g_all.columns else 0
+            g_all['Cost'] = clean_currency(g_all['Cost']) if 'Cost' in g_all.columns else 0.0
             g_agg = g_all.groupby('utm_clean').agg(GAds_Spend=('Cost', 'sum')).reset_index()
         else:
             g_agg = pd.DataFrame(columns=['utm_clean', 'GAds_Spend'])
@@ -77,12 +78,12 @@ def build_master_hub():
             li_key = find_col(li, ['Campaign Name', 'Campaign'])
             li['utm_clean'] = li[li_key].astype(str).str.lower().str.strip()
             li_spend = find_col(li, ['Total Spend', 'Spend', 'Cost'])
-            li['LI_Spend'] = clean_currency(li[li_spend]) if li_spend else 0
+            li['LI_Spend'] = clean_currency(li[li_spend]) if li_spend else 0.0
             li_agg = li.groupby('utm_clean').agg(LI_Spend=('LI_Spend', 'sum')).reset_index()
         else:
             li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
 
-        # GA Acquisition Pipeline
+        # GA Pipeline
         ga_files = ['GA_FY25_UTM_Totals_Jul2024-Jun2025.csv', 'GA_FY26_UTM_Totals_Jul-Dec2025.csv']
         ga_dfs = []
         for f in ga_files:
@@ -91,16 +92,19 @@ def build_master_hub():
                 ga_key = find_col(_df, ['Session campaign', 'Campaign'])
                 if ga_key:
                     _df['utm_clean'] = _df[ga_key].astype(str).str.lower().str.strip()
-                    _df['Total users'] = pd.to_numeric(_df['Total users'], errors='coerce').fillna(0)
+                    _df['Total users'] = pd.to_numeric(_df['Total users'], errors='coerce').fillna(0.0)
                     ga_dfs.append(_df[['utm_clean', 'Total users']])
         ga_agg = pd.concat(ga_dfs).groupby('utm_clean').agg(Total_Users=('Total users', 'sum')).reset_index() if ga_dfs else pd.DataFrame(columns=['utm_clean', 'Total_Users'])
 
-        # Final Synthesis
+        # Synthesis & Strict Type Casting
         hub = pd.merge(idx, ga_agg, on='utm_clean', how='left')
         hub = pd.merge(hub, g_agg, on='utm_clean', how='left')
-        hub = pd.merge(hub, li_agg, on='utm_clean', how='left').fillna(0)
-        hub['Total_Spend'] = hub['GAds_Spend'] + hub['LI_Spend']
-        hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0)
+        hub = pd.merge(hub, li_agg, on='utm_clean', how='left').fillna(0.0)
+        
+        # STRICT FLOAT CASTING FOR SCIPY
+        hub['Total_Spend'] = pd.to_numeric(hub['GAds_Spend'] + hub['LI_Spend'], errors='coerce').fillna(0.0).astype(float)
+        hub['Total_Users'] = pd.to_numeric(hub['Total_Users'], errors='coerce').fillna(0.0).astype(float)
+        hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0.0).astype(float)
         
         return hub
     except Exception as e:
@@ -145,7 +149,7 @@ if current_page == "home":
     <style>
         body { margin: 0; background: #fff; overflow: hidden; font-family: sans-serif; }
         .node-label {
-            position: absolute; background: rgba(255,255,255,0.9); border: 2px solid #C41230;
+            position: absolute; background: rgba(255,255,255,0.95); border: 2px solid #C41230;
             padding: 6px 12px; border-radius: 20px; font-weight: bold; cursor: pointer;
             transition: 0.3s; pointer-events: auto; text-decoration: none; color: #C41230; font-size: 11px;
         }
@@ -158,12 +162,12 @@ if current_page == "home":
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.autoRotate = true; controls.autoRotateSpeed = 0.5;
 
-        // LIGHTING FOR 3D TEXT
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        // DYNAMIC LIGHTING FOR RED TEXT
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
         dirLight.position.set(10, 20, 10); scene.add(dirLight);
 
-        // BRANDED PARTICLES
+        // CMU BRANDED PARTICLES
         const count = 35000; const pos = new Float32Array(count * 3); const colors = new Float32Array(count * 3);
         const red = new THREE.Color(0xC41230); const gray = new THREE.Color(0x6D6E71);
         for(let i=0; i<count; i++){
@@ -175,17 +179,19 @@ if current_page == "home":
         const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         scene.add(new THREE.Points(geo, new THREE.PointsMaterial({size: 0.05, vertexColors: true, transparent: true, opacity: 0.7})));
 
-        // 3D "CMU" TEXT CORE
+        // 3D "CMU" TEXT CORE - UPDATED TO GLOWING CARDINAL RED
         const loader = new THREE.FontLoader();
         loader.load('https://unpkg.com/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {
             const textGeo = new THREE.TextGeometry('CMU', {
-                font: font, size: 4, height: 1, curveSegments: 12,
+                font: font, size: 4.5, height: 1.2, curveSegments: 12,
                 bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.1, bevelOffset: 0, segments: 5
             });
             textGeo.computeBoundingBox();
-            const centerOffset = - 0.5 * (textGeo.boundingBox.max.x - textGeo.boundingBox.min.x);
+            const centerOffset = -0.5 * (textGeo.boundingBox.max.x - textGeo.boundingBox.min.x);
             textGeo.translate(centerOffset, -1.5, 0);
-            const textMat = new THREE.MeshStandardMaterial({color: 0xC41230, roughness: 0.2, metalness: 0.8});
+            
+            // Phong Material guarantees bright color response
+            const textMat = new THREE.MeshPhongMaterial({color: 0xC41230, emissive: 0x220000, shininess: 100});
             const textMesh = new THREE.Mesh(textGeo, textMat);
             scene.add(textMesh);
         });
@@ -242,7 +248,7 @@ elif current_page == "explorer":
         with t3:
             st.dataframe(df.describe(include='all').T, use_container_width=True)
     else:
-        st.error("File not found in data directory.")
+        st.error(f"File not found in data directory: {f}")
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -256,15 +262,21 @@ elif current_page == "analysis":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     from streamlit_extras.colored_header import colored_header
     colored_header("Step 3: Quantitative Strategist", "Inferring mathematical truth from the cleaned hub.")
+    
     if not master_df.empty:
         c1, c2 = st.columns(2)
-        corr, _ = stats.pearsonr(master_df['Total_Spend'], master_df['Total_Users'])
-        c1.metric("Spend-to-User Correlation (Pearson)", f"{corr:.2f}")
-        c2.metric("Significant Campaigns", len(master_df[master_df['Total_Spend'] > 0]))
+        # Verify variance before calculating Pearson to prevent SciPy Warnings/Errors
+        if master_df['Total_Spend'].var() > 0 and master_df['Total_Users'].var() > 0:
+            corr, _ = stats.pearsonr(master_df['Total_Spend'], master_df['Total_Users'])
+            c1.metric("Spend-to-User Correlation (Pearson)", f"{corr:.2f}")
+        else:
+            c1.metric("Spend-to-User Correlation", "N/A (Zero Variance)")
+            
+        c2.metric("Significant Campaigns Tracked", len(master_df[master_df['Total_Spend'] > 0]))
         st.plotly_chart(px.scatter(master_df[master_df['Total_Spend']>0], x="Total_Spend", y="Total_Users", 
                                    trendline="ols", color="Category", title="Efficiency Frontier: Real Regression Analysis"), use_container_width=True)
 
-# ======================= AGENT 4: VISUAL ARCHITECT (INTERACTIVE) =======================
+# ======================= AGENT 4: VISUAL ARCHITECT =======================
 elif current_page == "dashboard":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     from streamlit_extras.colored_header import colored_header
@@ -272,24 +284,19 @@ elif current_page == "dashboard":
     colored_header("Step 4: Visual Architect", "Interactive Executive ROI Command Center.")
     
     if not master_df.empty:
-        # --- INTERACTIVE FILTERS ---
         st.sidebar.header("🎯 Architect Filters")
-        st.sidebar.markdown("Filter the Master Hub to adjust the entire dashboard dynamically.")
-        
         categories = master_df['Category'].dropna().unique().tolist()
         selected_cats = st.sidebar.multiselect("Filter by Category", categories, default=categories)
         
-        max_spend = float(master_df['Total_Spend'].max())
+        max_spend = float(master_df['Total_Spend'].max()) if not master_df.empty else 0.0
         spend_range = st.sidebar.slider("Filter by Total Spend", 0.0, max_spend, (0.0, max_spend))
         
-        # Apply filters
         filtered_df = master_df[
             (master_df['Category'].isin(selected_cats)) & 
             (master_df['Total_Spend'] >= spend_range[0]) & 
             (master_df['Total_Spend'] <= spend_range[1])
         ]
         
-        # --- METRICS ---
         m1, m2, m3 = st.columns(3)
         m1.metric("Filtered Spend", f"${filtered_df['Total_Spend'].sum():,.2f}")
         m2.metric("Filtered Acquisitions", f"{filtered_df['Total_Users'].sum():,.0f}")
@@ -297,19 +304,20 @@ elif current_page == "dashboard":
         m3.metric("Filtered Avg CPWU", f"${avg_cpwu:.2f}")
         style_metric_cards(border_left_color="#C41230")
         
-        # --- VISUALS ---
         v1, v2 = st.columns(2)
         with v1:
             st.plotly_chart(px.bar(filtered_df.groupby('Category')['Total_Spend'].sum().reset_index(), 
-                                   x='Category', y='Total_Spend', color='Category', title="Budget by Department"), use_container_width=True)
+                                   x='Category', y='Total_Spend', color='Category', title="Budget Allocation"), use_container_width=True)
         with v2:
-            st.plotly_chart(px.pie(filtered_df.groupby('Category')['Total_Users'].sum().reset_index(), 
-                                   names='Category', values='Total_Users', hole=0.4, title="User Acquisition Share"), use_container_width=True)
+            if filtered_df['Total_Users'].sum() > 0:
+                st.plotly_chart(px.pie(filtered_df.groupby('Category')['Total_Users'].sum().reset_index(), 
+                                       names='Category', values='Total_Users', hole=0.4, title="User Acquisition Share"), use_container_width=True)
+            else:
+                st.info("No user acquisitions in selected range.")
             
-        st.write("### Filtered Campaign Data")
         st.dataframe(filtered_df[['utm_clean', 'Category', 'Total_Spend', 'Total_Users', 'CPWU']].sort_values(by="Total_Spend", ascending=False), use_container_width=True)
     else:
-        st.warning("Master Hub is empty. Please verify data ingestion.")
+        st.warning("Master Hub is empty.")
 
 # ======================= AGENT 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
@@ -324,10 +332,8 @@ elif current_page == "graph":
             if pd.notna(cat):
                 net.add_node(str(cat), size=25, color="#6D6E71")
                 net.add_edge("Nexus Hub", str(cat))
-                
-                # Link campaigns to category
                 cat_campaigns = master_df[master_df['Category'] == cat]['utm_clean'].dropna().unique()
-                for camp in cat_campaigns[:10]: # Limit to 10 per category for performance
+                for camp in cat_campaigns[:10]: 
                     net.add_node(str(camp), size=10, color="#E2C044", title=f"Campaign: {camp}")
                     net.add_edge(str(cat), str(camp))
         
