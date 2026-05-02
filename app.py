@@ -2,336 +2,228 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as GO
-from sklearn.cluster import KMeans
-from pyvis.network import Network
-import streamlit.components.v1 as components
-import tempfile
-import os
+from scipy import stats
 
-# ==========================================
-# PAGE CONFIGURATION & GLASSMORPHISM THEME
-# ==========================================
-st.set_page_config(page_title="The Data Nexus", layout="wide", page_icon="🌌")
+# ---------------------------------------------------------
+# 1. PAGE CONFIGURATION & UI SETUP
+# ---------------------------------------------------------
+st.set_page_config(page_title="CMU Campaign Intelligence", layout="wide", initial_sidebar_state="expanded")
 
+# Simulated Custom Component Placeholder for 3D Hero
 st.markdown("""
-    <style>
-    /* Glassmorphism Global Theme */
-    .stApp {
-        background-color: #f8fafc;
-        background-image: radial-gradient(circle at 50% -20%, #e0e7ff, #f8fafc);
-        color: #0f172a;
-    }
-    .glass-panel {
-        background: rgba(255, 255, 255, 0.65);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.8);
-        padding: 24px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-        margin-bottom: 20px;
-    }
-    h1, h2, h3, h4 { color: #0f172a !important; font-weight: 600; }
-    .text-indigo { color: #4f46e5; font-weight: bold; }
-    .text-emerald { color: #10b981; font-weight: bold; }
-    .text-amber { color: #f59e0b; font-weight: bold; }
-    .text-purple { color: #8b5cf6; font-weight: bold; }
-    .metric-value { font-size: 2rem; font-weight: 700; color: #1e293b; }
-    .metric-label { font-size: 0.9rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
-    </style>
+    <div style='background-color: #000; padding: 40px; border-radius: 10px; text-align: center; color: white; margin-bottom: 20px;'>
+        <h1 style='color: #C41230;'>CMU Campaign Intelligence</h1>
+        <p><i>[ 3D Particle System Canvas Placeholder (WebGL/Three.js) ]</i></p>
+    </div>
 """, unsafe_allow_html=True)
 
-
-# ==========================================
-# ROBUST MOCK DATA GENERATION
-# ==========================================
+# ---------------------------------------------------------
+# 2. DATA LOADING & CLEANING FUNCTIONS (Cached for performance)
+# ---------------------------------------------------------
 @st.cache_data
-def generate_mock_data():
-    np.random.seed(42)
-    
-    # 1. Google Ads Mock Data (Intentional string formatting & null anomalies)
-    gads_data = pd.DataFrame({
-        'Campaign_ID': [f"GADS_{i}" for i in range(1, 101)],
-        'Platform': ['Google Ads'] * 100,
-        'Spend': [f"${np.random.uniform(500, 5000):,.2f}" if i % 10 != 0 else "--" for i in range(100)],
-        'Impressions': [f"{int(np.random.uniform(10000, 500000)):,}" for _ in range(100)],
-        'Clicks': [np.random.randint(100, 5000) for _ in range(100)],
-        'Conversions': [np.random.randint(0, 50) for _ in range(100)]
-    })
-    
-    # 2. GA4 Mock Data (Intentional Wide Format Anomaly)
-    ga4_data = pd.DataFrame({'Campaign_ID': [f"GADS_{i}" for i in range(1, 101)]})
-    for day in range(7): # Simulating a 7-day wide format
-        ga4_data[f'Day{day}_Sessions'] = np.random.randint(50, 1000, size=100)
-    ga4_data['Avg_Session_Duration'] = np.random.uniform(10, 300, size=100) # seconds
-    
-    # 3. Monday.com Mock Data (Trailing comma structural bloat)
-    monday_data = pd.DataFrame({
-        'Task_ID': [f"TASK_{i}" for i in range(1, 101)],
-        'Campaign_Name': [f"Podcast Promo - Ep {i}" for i in range(1, 101)],
-        'Status': np.random.choice(['Live', 'Paused', 'Review'], 100)
-    })
-    
-    return gads_data, ga4_data, monday_data
-
-
-# ==========================================
-# PIPELINE FUNCTIONS (AGENT LOGIC)
-# ==========================================
-def agent_clean_data(gads_df, ga4_df):
-    """Agent 2 Logic: Cleans and merges datasets"""
-    df_clean = gads_df.copy()
-    
-    # Fix 1: Regex cleaning for Spend and Impressions, Sentinel value replacement
-    df_clean['Spend'] = df_clean['Spend'].astype(str).str.replace('$', '', regex=False).str.replace(',', '', regex=False).replace('--', '0').astype(float)
-    df_clean['Impressions'] = df_clean['Impressions'].astype(str).str.replace(',', '', regex=False).astype(int)
-    
-    # Fix 2: Feature Engineering
-    df_clean['CTR'] = (df_clean['Clicks'] / df_clean['Impressions']) * 100
-    df_clean['Conv_Rate'] = (df_clean['Conversions'] / df_clean['Clicks']) * 100
-    
-    # Fix 3: Merge with GA4 telemetry (Simulated Relational Join)
-    df_clean = pd.merge(df_clean, ga4_df[['Campaign_ID', 'Avg_Session_Duration']], on='Campaign_ID', how='inner')
-    
-    return df_clean
-
-def agent_run_clustering(df):
-    """Agent 3 Logic: K-Means Clustering"""
-    features = df[['CTR', 'Avg_Session_Duration']].fillna(0)
-    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10).fit(features)
-    df['Cluster'] = kmeans.labels_
-    
-    # Map clusters to Personas
-    cluster_mapping = {
-        0: "Cultural Generalists",
-        1: "High-Intent Specialists",
-        2: "Casual Browsers"
-    }
-    df['Persona'] = df['Cluster'].map(cluster_mapping)
-    return df
-
-
-# ==========================================
-# UI COMPONENTS
-# ==========================================
-def render_3d_home():
-    st.markdown("<h1 style='text-align: center; font-size: 4rem; margin-top: 2rem; color: #1e293b; letter-spacing: -2px;'>THE OMNISCIENT VIEW</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; font-size: 1.2rem; color: #64748b;'>Marketing Intelligence Ecosystem Simulator</p>", unsafe_allow_html=True)
-    
-    # Generate 3D Particle System
-    np.random.seed(0)
-    t = np.linspace(0, 10, 500)
-    x = np.cos(t) * np.exp(-0.1*t) + np.random.normal(0, 0.05, 500)
-    y = np.sin(t) * np.exp(-0.1*t) + np.random.normal(0, 0.05, 500)
-    z = t + np.random.normal(0, 0.05, 500)
-    
-    fig = GO.Figure(data=[GO.Scatter3d(
-        x=x, y=y, z=z, mode='markers',
-        marker=dict(size=4, color=z, colorscale='Purp', opacity=0.8)
-    )])
-    fig.update_layout(
-        margin=dict(l=0, r=0, b=0, t=0),
-        scene=dict(xaxis_visible=False, yaxis_visible=False, zaxis_visible=False),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        height=500
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-def render_knowledge_graph():
-    st.markdown("### Ontological Marketing Graph")
-    st.markdown("<p class='text-indigo'>Visualizing entity connections across the data lake.</p>", unsafe_allow_html=True)
-    
-    # Generate Pyvis Graph
-    net = Network(height='600px', width='100%', bgcolor='#ffffff', font_color='#0f172a', border='none')
-    
-    # Central Node
-    net.add_node("Campaign", label="Central Campaign", color="#4f46e5", size=30)
-    
-    # Tier 1 Nodes
-    net.add_node("GAds", label="Google Ads", color="#0ea5e9", size=20)
-    net.add_node("LI", label="LinkedIn", color="#0284c7", size=20)
-    net.add_node("GA4", label="GA4 Web Telemetry", color="#f59e0b", size=20)
-    
-    # Tier 2 Nodes
-    net.add_node("Aud1", label="High-Intent Audience", color="#10b981", size=15)
-    net.add_node("Aud2", label="Generalist Audience", color="#8b5cf6", size=15)
-    net.add_node("KW1", label="Tech Keywords", color="#cbd5e1", size=10)
-    net.add_node("KW2", label="Admissions Keywords", color="#cbd5e1", size=10)
-
-    # Edges
-    edges = [("Campaign", "GAds"), ("Campaign", "LI"), ("Campaign", "GA4"),
-             ("GAds", "KW1"), ("GAds", "KW2"), ("LI", "Aud1"), ("LI", "Aud2"),
-             ("GA4", "Aud1"), ("GA4", "Aud2")]
-    for source, target in edges:
-        net.add_edge(source, target)
-        
-    net.repulsion(node_distance=150, spring_length=200)
-    
-    # Save & Render in Streamlit
+def load_and_clean_data():
     try:
-        path = '/tmp' if os.name == 'posix' else os.environ.get('TEMP', '.')
-        file_path = os.path.join(path, "kg_graph.html")
-        net.save_graph(file_path)
-        with open(file_path, "r", encoding="utf-8") as f:
-            html_content = f.read()
-        components.html(html_content, height=620)
-    except Exception as e:
-        st.error(f"Graph rendering error: {e}")
+        # Load Raw Data from the 'data/' folder
+        index_df = pd.read_csv('data/UCM Campaign Index.csv')
+        campaign_mgmt = pd.read_csv('data/2024-25_Campaign_Management_1769521985.csv')
+        ga_time = pd.read_csv('data/GA_FY25_TimeSeries (1).csv')
+        ga_utm = pd.read_csv('data/GA_FY25_UTM_Totals_Jul2024-Jun2025.csv', skiprows=1) # Skipping header row if malformed
+        gads_perf = pd.read_csv('data/GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad.csv')
+        linkedin_perf = pd.read_csv('data/LinkedIn_Ad_Performance_Feb2024_Dec2025.csv')
 
-def render_agent1(raw_gads, raw_ga4):
-    st.markdown("### Agent 1: Data Auditor")
-    st.markdown("<p class='text-purple'>Role: Scans raw datasets to identify inconsistencies.</p>", unsafe_allow_html=True)
-    
-    st.markdown('<div class="glass-panel">', unsafe_allow_html=True)
-    st.markdown("#### Identified Anomalies")
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        st.error("**🔴 Critical: Data Type Mismatch (Google Ads)**")
-        st.write("Financial columns like `Spend` and `Impressions` are stored as formatted strings (e.g., '$1,500.00'). The presence of the placeholder `--` for null values will crash mathematical models.")
-        st.dataframe(raw_gads[['Campaign_ID', 'Spend', 'Impressions']].head(4))
-        
-    with c2:
-        st.warning("**🟠 High: Wide Format Inefficiency (GA4)**")
-        st.write("Time series telemetry is stored horizontally across multiple columns (`Day0_Sessions`, `Day1_Sessions`, etc.) rather than a vertically indexed time-series, preventing ARIMA forecasting.")
-        st.dataframe(raw_ga4.head(4))
-        
-    st.markdown('</div>', unsafe_allow_html=True)
+        # --- Cleaning Anomaly 1: Structural Bloat in Campaign Mgmt ---
+        campaign_clean = campaign_mgmt.dropna(how='all')
+        if 'Name' in campaign_clean.columns:
+            campaign_clean = campaign_clean.dropna(subset=['Name'])
 
-def render_agent2(raw_gads, raw_ga4, clean_df):
-    st.markdown("### Agent 2: Data Cleaner")
-    st.markdown("<p class='text-emerald'>Role: Applies automated fixes and standardization.</p>", unsafe_allow_html=True)
-    
-    st.markdown('<div class="glass-panel">', unsafe_allow_html=True)
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        st.markdown("""
-        #### Remediation Log
-        - ✅ **Regex Cleaning:** Stripped `$` and `,` from financial arrays. Casted features to `Float64`.
-        - ✅ **Sentinel Replacement:** Converted `--` strings to `0.0`.
-        - ✅ **Matrix Melting:** Converted wide-format GA4 arrays into standardized chronological rows (via `pd.melt()`).
-        - ✅ **Relational Join:** Successfully merged Ad performance with Web Dwell time on `Campaign_ID`.
-        """)
-        st.success("Data Pipeline Execution: SUCCESS")
-        
-    with c2:
-        st.markdown("#### Post-Remediation Dataset (Ready for ML)")
-        st.dataframe(clean_df[['Campaign_ID', 'Spend', 'Impressions', 'CTR', 'Avg_Session_Duration']].head(8), use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+        # --- Cleaning Anomaly 2: Wide-to-Long Reshaping for TimeSeries ---
+        melted_ga = pd.melt(ga_time, id_vars=['Session campaign', 'Segment'], var_name='Day', value_name='User_Count')
+        melted_ga['Day_Number'] = melted_ga['Day'].str.extract('(\d+)').astype(float)
+        melted_ga['User_Count'] = pd.to_numeric(melted_ga['User_Count'], errors='coerce').fillna(0)
 
-def render_agent3(clean_df):
-    st.markdown("### Agent 3: Data Scientist")
-    st.markdown("<p class='text-indigo'>Role: Performs statistical analysis and clustering.</p>", unsafe_allow_html=True)
-    
-    df_clustered = agent_run_clustering(clean_df.copy())
-    
-    st.markdown('<div class="glass-panel">', unsafe_allow_html=True)
-    c1, c2 = st.columns([2, 1])
-    
-    with c1:
-        st.markdown("#### AI Audience Personas (K-Means Clustering)")
-        fig = px.scatter(df_clustered, x='CTR', y='Avg_Session_Duration', color='Persona', 
-                         size='Impressions', hover_name='Campaign_ID',
-                         title="Audience Segmentation Matrix",
-                         color_discrete_sequence=['#4f46e5', '#10b981', '#f59e0b'])
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(255,255,255,0.5)')
-        st.plotly_chart(fig, use_container_width=True)
-        
-    with c2:
-        st.markdown("#### Insight: The Impression Trap")
-        st.info("High reach does not equal high dwell time. Notice how the **Generalist Audience** yields high impressions but significantly lower average session duration. To optimize ROI, budget reallocation toward **High-Intent Specialists** is recommended.")
-        
-        st.markdown("#### Feature Correlation")
-        corr = df_clustered[['Spend', 'CTR', 'Avg_Session_Duration']].corr()
-        fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='Blues')
-        fig_corr.update_layout(margin=dict(l=0, r=0, b=0, t=0), height=200)
-        st.plotly_chart(fig_corr, use_container_width=True)
-        
-    st.markdown('</div>', unsafe_allow_html=True)
+        # --- Cleaning Anomaly 3: String/Numeric Type Mismatches in Google Ads ---
+        gads_perf.replace('--', np.nan, inplace=True)
+        cols_to_clean = ['Clicks', 'Impr.', 'CTR', 'Cost']
+        for col in cols_to_clean:
+            if col in gads_perf.columns:
+                gads_perf[col] = gads_perf[col].astype(str).str.replace(r'[,\%\$]', '', regex=True)
+                gads_perf[col] = pd.to_numeric(gads_perf[col], errors='coerce')
 
-def render_dashboard(clean_df):
-    st.markdown("### The Architect: Executive Dashboard")
-    st.markdown("<p class='text-amber'>Role: Unified omniscient visualization.</p>", unsafe_allow_html=True)
-    
-    # KPI Banner
-    c1, c2, c3, c4 = st.columns(4)
-    c1.markdown(f"<div class='glass-panel'><div class='metric-label'>Total Global Spend</div><div class='metric-value'>${clean_df['Spend'].sum():,.0f}</div></div>", unsafe_allow_html=True)
-    c2.markdown(f"<div class='glass-panel'><div class='metric-label'>Net Conversions</div><div class='metric-value'>{clean_df['Conversions'].sum():,.0f}</div></div>", unsafe_allow_html=True)
-    
-    blended_cac = clean_df['Spend'].sum() / clean_df['Conversions'].sum() if clean_df['Conversions'].sum() > 0 else 0
-    c3.markdown(f"<div class='glass-panel'><div class='metric-label'>Blended CAC</div><div class='metric-value'>${blended_cac:,.2f}</div></div>", unsafe_allow_html=True)
-    c4.markdown(f"<div class='glass-panel'><div class='metric-label'>Global ROI (Est)</div><div class='metric-value text-emerald'>+24.5%</div></div>", unsafe_allow_html=True)
+        # --- Cleaning Anomaly 4: Dimensionality Reduction in LinkedIn ---
+        threshold = len(linkedin_perf) * 0.8
+        linkedin_clean = linkedin_perf.dropna(thresh=len(linkedin_perf) - threshold, axis=1)
+        
+        return index_df, campaign_clean, melted_ga, ga_utm, gads_perf, linkedin_clean
+        
+    except FileNotFoundError as e:
+        st.error(f"File missing: {e}. Please ensure all CSVs are in the 'data/' folder.")
+        st.stop()
 
-    # Charts
-    st.markdown('<div class="glass-panel">', unsafe_allow_html=True)
-    ch1, ch2 = st.columns(2)
+# Load the data
+index_df, campaign_clean, melted_ga, ga_utm, gads_perf, linkedin_clean = load_and_clean_data()
+
+# ---------------------------------------------------------
+# 3. UNIFIED DATA MODEL (Master View Merge)
+# ---------------------------------------------------------
+@st.cache_data
+def create_master_view(index_df, ga_utm, gads_perf, linkedin_clean):
+    # Standardize join keys
+    if 'UTM campaign' in index_df.columns:
+        index_df['utm_clean'] = index_df['UTM campaign'].astype(str).str.lower().str.strip()
     
-    with ch1:
-        st.markdown("#### CTR vs. Conversion Rate Map")
-        fig_scatter = px.scatter(clean_df, x='CTR', y='Conv_Rate', color='Spend', size='Conversions',
-                                 color_continuous_scale='Purp', hover_name='Campaign_ID')
-        fig_scatter.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(255,255,255,0.5)')
-        st.plotly_chart(fig_scatter, use_container_width=True)
+    # Process GA UTM
+    ga_utm_renamed = ga_utm.copy()
+    if 'Session campaign' in ga_utm_renamed.columns:
+        ga_utm_renamed['utm_clean'] = ga_utm_renamed['Session campaign'].astype(str).str.lower().str.strip()
+        ga_agg = ga_utm_renamed.groupby('utm_clean').agg(
+            Total_Website_Users=('Total users', 'sum'),
+            Average_Engagement_Rate=('Engagement rate', 'mean')
+        ).reset_index()
+    else:
+        ga_agg = pd.DataFrame(columns=['utm_clean', 'Total_Website_Users', 'Average_Engagement_Rate'])
+
+    # Mock Spend Data based on files (Replace 'Cost'/'Total Spend' with actual column names if they differ slightly)
+    # Grouping Google Ads Spend
+    if 'Ad name' in gads_perf.columns and 'Cost' in gads_perf.columns:
+        gads_perf['utm_clean'] = gads_perf['Ad name'].astype(str).str.lower().str.strip()
+        gads_agg = gads_perf.groupby('utm_clean').agg(Total_GAds_Spend=('Cost', 'sum')).reset_index()
+    else:
+        gads_agg = pd.DataFrame(columns=['utm_clean', 'Total_GAds_Spend'])
+
+    # Grouping LinkedIn Spend
+    if 'Campaign Name' in linkedin_clean.columns and 'Total Spend' in linkedin_clean.columns:
+        linkedin_clean['utm_clean'] = linkedin_clean['Campaign Name'].astype(str).str.lower().str.strip()
+        li_agg = linkedin_clean.groupby('utm_clean').agg(Total_LinkedIn_Spend=('Total Spend', 'sum')).reset_index()
+    else:
+        li_agg = pd.DataFrame(columns=['utm_clean', 'Total_LinkedIn_Spend'])
+
+    # Merge everything to the Index Hub
+    master_df = index_df.copy()
+    master_df = pd.merge(master_df, ga_agg, on='utm_clean', how='left')
+    master_df = pd.merge(master_df, gads_agg, on='utm_clean', how='left')
+    master_df = pd.merge(master_df, li_agg, on='utm_clean', how='left')
+
+    # Fill NA and calculate Cost Per Website User
+    master_df.fillna({'Total_GAds_Spend': 0, 'Total_LinkedIn_Spend': 0, 'Total_Website_Users': 0}, inplace=True)
+    master_df['Total_Combined_Spend'] = master_df['Total_GAds_Spend'] + master_df['Total_LinkedIn_Spend']
+    master_df['CPWU'] = np.where(master_df['Total_Website_Users'] > 0, 
+                                 master_df['Total_Combined_Spend'] / master_df['Total_Website_Users'], 0)
+    
+    return master_df
+
+master_df = create_master_view(index_df, ga_utm, gads_perf, linkedin_clean)
+
+# ---------------------------------------------------------
+# 4. STREAMLIT UI LAYOUT & TABS
+# ---------------------------------------------------------
+tab1, tab2, tab3 = st.tabs(["📊 Data Walkthrough & KPIs", "📈 Statistical Analysis", "🎯 Master View (ROI Matrix)"])
+
+# --- TAB 1: Data Walkthrough & Top-line KPIs ---
+with tab1:
+    st.header("Platform Highlights & Cleaned Data")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(label="Total Logged Campaigns", value=len(index_df))
+    with col2:
+        st.metric(label="Total Cross-Platform Spend", value=f"${master_df['Total_Combined_Spend'].sum():,.2f}")
+    with col3:
+        st.metric(label="Total Website Users Acquired", value=f"{master_df['Total_Website_Users'].sum():,.0f}")
         
-    with ch2:
-        st.markdown("#### The Attention Economy")
-        st.write("Comparing raw Impressions (Bar) vs Session Duration (Line)")
+    st.divider()
+    
+    st.subheader("Data Cleaning Walkthrough")
+    with st.expander("View Cleaned LinkedIn Ads Data (Sparsity Handled)"):
+        st.markdown("Removed columns with > 80% null values to isolate core performance metrics.")
+        st.dataframe(linkedin_clean.head(100))
         
-        # Dual axis composed chart simulation via Plotly GO
-        df_sorted = clean_df.sort_values('Impressions', ascending=False).head(15)
-        fig_composed = GO.Figure()
-        fig_composed.add_trace(GO.Bar(x=df_sorted['Campaign_ID'], y=df_sorted['Impressions'], name='Impressions', marker_color='#93c5fd'))
-        fig_composed.add_trace(GO.Scatter(x=df_sorted['Campaign_ID'], y=df_sorted['Avg_Session_Duration'], name='Avg Dwell Time (s)', yaxis='y2', line=dict(color='#4f46e5', width=3)))
+    with st.expander("View Reshaped GA TimeSeries Data (Wide to Long)"):
+        st.markdown("Melted 365 daily columns into rows to enable proper temporal analysis.")
+        st.dataframe(melted_ga.head(100))
+
+# --- TAB 2: Statistical Analysis ---
+with tab2:
+    st.header("Advanced Statistical Analysis")
+    
+    st.subheader("1. Time-Series Analysis (OLS Regression)")
+    st.markdown("Evaluating the long-term trend of user acquisition over the campaign lifecycle.")
+    
+    # Plotly Trendline (Requires statsmodels)
+    if not melted_ga.empty:
+        # Filter down to top 5 campaigns for visual clarity
+        top_campaigns = melted_ga.groupby('Session campaign')['User_Count'].sum().nlargest(5).index
+        filtered_ga = melted_ga[melted_ga['Session campaign'].isin(top_campaigns)]
         
-        fig_composed.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(255,255,255,0.5)',
-            yaxis=dict(title='Impressions', side='left'),
-            yaxis2=dict(title='Dwell Time (s)', overlaying='y', side='right'),
-            legend=dict(orientation="h", y=-0.2)
+        fig1 = px.scatter(
+            filtered_ga, x="Day_Number", y="User_Count", color="Session campaign",
+            trendline="ols", title="Top 5 Campaigns: Daily Traffic with OLS Regression"
         )
-        st.plotly_chart(fig_composed, use_container_width=True)
+        st.plotly_chart(fig1, use_container_width=True)
+    
+    st.divider()
+    
+    st.subheader("2. A/B Hypothesis Testing (Independent T-Test)")
+    st.markdown("Testing if there is a statistically significant difference in engagement between Google vs. LinkedIn campaigns.")
+    
+    # Perform T-Test on Engagement Rate (Mock logic based on UTM source)
+    if 'Session source' in ga_utm.columns and 'Engagement rate' in ga_utm.columns:
+        ga_utm['Engagement rate'] = pd.to_numeric(ga_utm['Engagement rate'], errors='coerce').fillna(0)
+        google_engagement = ga_utm[ga_utm['Session source'].str.contains('google', na=False, case=False)]['Engagement rate']
+        linkedin_engagement = ga_utm[ga_utm['Session source'].str.contains('linkedin', na=False, case=False)]['Engagement rate']
         
-    st.markdown('</div>', unsafe_allow_html=True)
+        if len(google_engagement) > 0 and len(linkedin_engagement) > 0:
+            t_stat, p_val = stats.ttest_ind(google_engagement, linkedin_engagement, equal_var=False)
+            
+            st.write(f"**T-Statistic:** {t_stat:.4f}")
+            st.write(f"**P-Value:** {p_val:.4e}")
+            
+            if p_val < 0.05:
+                st.success(f"Result: The difference in engagement rates is statistically significant (p < 0.05).")
+            else:
+                st.warning(f"Result: No statistically significant difference in engagement rates (p >= 0.05).")
 
-
-# ==========================================
-# APP ROUTING & SIDEBAR NAVIGATION
-# ==========================================
-def main():
-    # Load Data
-    raw_gads, raw_ga4, raw_monday = generate_mock_data()
-    clean_df = agent_clean_data(raw_gads, raw_ga4)
+# --- TAB 3: The Unified Master View ---
+with tab3:
+    st.header("Unified Cross-Platform ROI")
+    st.markdown("""
+    This model merges Google Ads spend, LinkedIn Ads spend, and GA website traffic against the central Campaign Index.
+    Use the **Cost Per Website User (CPWU)** to find efficiency.
+    """)
     
-    # Sidebar
-    st.sidebar.markdown("## 🧭 Global Navigation")
-    menu_selection = st.sidebar.radio("Omniscient View", [
-        "🏠 Home Base", 
-        "🕸️ Knowledge Graph", 
-        "🕵️ Agent 1: Data Auditor", 
-        "🛠️ Agent 2: Data Cleaner", 
-        "🔬 Agent 3: Data Scientist", 
-        "📊 Executive Dashboard"
-    ])
+    # Clean up the display dataframe
+    display_cols = ['Unique_Campaign_ID', 'Category', 'Total_Combined_Spend', 'Total_Website_Users', 'CPWU', 'Average_Engagement_Rate']
+    available_cols = [c for c in display_cols if c in master_df.columns]
     
-    st.sidebar.markdown("---")
-    st.sidebar.caption("System Status: **ONLINE**")
-    st.sidebar.caption("Data Mode: **PURE PYTHON PIPELINE**")
+    st.dataframe(master_df[available_cols].sort_values(by='CPWU', ascending=True).head(50))
     
-    # Routing
-    if menu_selection == "🏠 Home Base":
-        render_3d_home()
-    elif menu_selection == "🕸️ Knowledge Graph":
-        render_knowledge_graph()
-    elif menu_selection == "🕵️ Agent 1: Data Auditor":
-        render_agent1(raw_gads, raw_ga4)
-    elif menu_selection == "🛠️ Agent 2: Data Cleaner":
-        render_agent2(raw_gads, raw_ga4, clean_df)
-    elif menu_selection == "🔬 Agent 3: Data Scientist":
-        render_agent3(clean_df)
-    elif menu_selection == "📊 Executive Dashboard":
-        render_dashboard(clean_df)
-
-if __name__ == "__main__":
-    main()
+    st.divider()
+    
+    st.subheader("Campaign Efficiency Matrix")
+    st.markdown("Ideal campaigns live in the **Top-Left quadrant** (High Users, Low Spend).")
+    
+    valid_master = master_df[(master_df['Total_Website_Users'] > 0) & (master_df['Total_Combined_Spend'] > 0)]
+    
+    if not valid_master.empty:
+        # Determine coloring variable based on available columns
+        color_col = 'Category' if 'Category' in valid_master.columns else None
+            
+        fig2 = px.scatter(
+            valid_master, 
+            x="Total_Combined_Spend", 
+            y="Total_Website_Users", 
+            size="Average_Engagement_Rate", 
+            color=color_col,
+            hover_name="Unique_Campaign_ID" if 'Unique_Campaign_ID' in valid_master.columns else None,
+            labels={
+                "Total_Combined_Spend": "Total Ad Spend ($)",
+                "Total_Website_Users": "Website Users Acquired"
+            },
+            template="plotly_dark"
+        )
+        # Add Crosshairs for average lines
+        fig2.add_hline(y=valid_master['Total_Website_Users'].mean(), line_dash="dot", annotation_text="Avg Users", annotation_position="top left")
+        fig2.add_vline(x=valid_master['Total_Combined_Spend'].mean(), line_dash="dot", annotation_text="Avg Spend", annotation_position="top right")
+        
+        st.plotly_chart(fig2, use_container_width=True)
+    else:
+        st.info("Not enough overlapping spend/user data to generate the ROI matrix. Check mapping keys.")
