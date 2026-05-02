@@ -28,7 +28,7 @@ def get_base64_of_bin_file(bin_file):
     except: return ""
 
 # ---------------------------------------------------------
-# 2. THE ALCHEMIST ENGINE: STRICT TYPE CASTING
+# 2. THE ALCHEMIST ENGINE: DEFENSIVE ETL
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -45,7 +45,8 @@ def find_col(df, aliases):
     return None
 
 def clean_currency(series):
-    return pd.to_numeric(series.astype(str).str.replace(r'[,\%\$]', '', regex=True), errors='coerce').fillna(0.0)
+    # Ensure it's treated as a string, remove artifacts, convert to float
+    return pd.to_numeric(series.astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0.0)
 
 @st.cache_data
 def build_master_hub():
@@ -53,7 +54,7 @@ def build_master_hub():
         # Load Index
         if os.path.exists('data/UCM Campaign Index.csv'):
             idx = pd.read_csv('data/UCM Campaign Index.csv')
-            utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID'])
+            utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID', 'Landing Page (UTM)'])
             idx['utm_clean'] = idx[utm_col].astype(str).str.lower().str.strip() if utm_col else ""
             if 'Category' not in idx.columns: idx['Category'] = "Uncategorized"
         else:
@@ -96,12 +97,12 @@ def build_master_hub():
                     ga_dfs.append(_df[['utm_clean', 'Total users']])
         ga_agg = pd.concat(ga_dfs).groupby('utm_clean').agg(Total_Users=('Total users', 'sum')).reset_index() if ga_dfs else pd.DataFrame(columns=['utm_clean', 'Total_Users'])
 
-        # Synthesis & Strict Type Casting
+        # Synthesis
         hub = pd.merge(idx, ga_agg, on='utm_clean', how='left')
         hub = pd.merge(hub, g_agg, on='utm_clean', how='left')
         hub = pd.merge(hub, li_agg, on='utm_clean', how='left').fillna(0.0)
         
-        # STRICT FLOAT CASTING FOR SCIPY
+        # STRICT FLOAT CASTING
         hub['Total_Spend'] = pd.to_numeric(hub['GAds_Spend'] + hub['LI_Spend'], errors='coerce').fillna(0.0).astype(float)
         hub['Total_Users'] = pd.to_numeric(hub['Total_Users'], errors='coerce').fillna(0.0).astype(float)
         hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0.0).astype(float)
@@ -179,7 +180,7 @@ if current_page == "home":
         const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         scene.add(new THREE.Points(geo, new THREE.PointsMaterial({size: 0.05, vertexColors: true, transparent: true, opacity: 0.7})));
 
-        // 3D "CMU" TEXT CORE - UPDATED TO GLOWING CARDINAL RED
+        // 3D "CMU" TEXT CORE - GLOWING CARDINAL RED
         const loader = new THREE.FontLoader();
         loader.load('https://unpkg.com/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {
             const textGeo = new THREE.TextGeometry('CMU', {
@@ -189,8 +190,6 @@ if current_page == "home":
             textGeo.computeBoundingBox();
             const centerOffset = -0.5 * (textGeo.boundingBox.max.x - textGeo.boundingBox.min.x);
             textGeo.translate(centerOffset, -1.5, 0);
-            
-            // Phong Material guarantees bright color response
             const textMat = new THREE.MeshPhongMaterial({color: 0xC41230, emissive: 0x220000, shininess: 100});
             const textMesh = new THREE.Mesh(textGeo, textMat);
             scene.add(textMesh);
@@ -248,13 +247,17 @@ elif current_page == "explorer":
         with t3:
             st.dataframe(df.describe(include='all').T, use_container_width=True)
     else:
-        st.error(f"File not found in data directory: {f}")
+        st.error("File not found in data directory.")
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     from streamlit_extras.colored_header import colored_header
-    colored_header("Step 2: Data Alchemist", "Synthesized Master Hub: Standardized financial strings and cross-platform joins.")
+    colored_header("Step 2: Data Alchemist", "Synthesized Master Hub: ETL execution and anomaly patching.")
+    
+    if not master_df.empty and master_df['Total_Spend'].sum() == 0:
+        st.warning("⚠️ ALCHEMIST ALERT: Master Hub generated, but Total Spend is $0. The Join keys (utm_campaign) between the Index and Performance files did not match. Please verify UTM naming conventions in raw files.")
+    
     st.dataframe(master_df, use_container_width=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
@@ -265,16 +268,18 @@ elif current_page == "analysis":
     
     if not master_df.empty:
         c1, c2 = st.columns(2)
-        # Verify variance before calculating Pearson to prevent SciPy Warnings/Errors
+        # DEFENSIVE CHECK: Prevent SciPy KeyError / Zero Variance Crash
         if master_df['Total_Spend'].var() > 0 and master_df['Total_Users'].var() > 0:
             corr, _ = stats.pearsonr(master_df['Total_Spend'], master_df['Total_Users'])
             c1.metric("Spend-to-User Correlation (Pearson)", f"{corr:.2f}")
+            c2.metric("Significant Campaigns Tracked", len(master_df[master_df['Total_Spend'] > 0]))
+            
+            st.plotly_chart(px.scatter(master_df[master_df['Total_Spend']>0], x="Total_Spend", y="Total_Users", 
+                                       trendline="ols", color="Category", title="Efficiency Frontier: Real Regression Analysis"), use_container_width=True)
         else:
             c1.metric("Spend-to-User Correlation", "N/A (Zero Variance)")
-            
-        c2.metric("Significant Campaigns Tracked", len(master_df[master_df['Total_Spend'] > 0]))
-        st.plotly_chart(px.scatter(master_df[master_df['Total_Spend']>0], x="Total_Spend", y="Total_Users", 
-                                   trendline="ols", color="Category", title="Efficiency Frontier: Real Regression Analysis"), use_container_width=True)
+            c2.metric("Significant Campaigns Tracked", "0")
+            st.error("🚨 Strategist Warning: Variance is zero. There is no mapped spend data to calculate regression. The Alchemist join failed due to unmatched UTM tags.")
 
 # ======================= AGENT 4: VISUAL ARCHITECT =======================
 elif current_page == "dashboard":
@@ -288,7 +293,12 @@ elif current_page == "dashboard":
         categories = master_df['Category'].dropna().unique().tolist()
         selected_cats = st.sidebar.multiselect("Filter by Category", categories, default=categories)
         
-        max_spend = float(master_df['Total_Spend'].max()) if not master_df.empty else 0.0
+        # DEFENSIVE SLIDER: Prevent Streamlit API Exception
+        max_spend = float(master_df['Total_Spend'].max())
+        if pd.isna(max_spend) or max_spend <= 0.0:
+            max_spend = 1.0 # Minimum valid range to prevent crash
+            st.sidebar.warning("No Spend Data available to filter.")
+            
         spend_range = st.sidebar.slider("Filter by Total Spend", 0.0, max_spend, (0.0, max_spend))
         
         filtered_df = master_df[
@@ -317,7 +327,7 @@ elif current_page == "dashboard":
             
         st.dataframe(filtered_df[['utm_clean', 'Category', 'Total_Spend', 'Total_Users', 'CPWU']].sort_values(by="Total_Spend", ascending=False), use_container_width=True)
     else:
-        st.warning("Master Hub is empty.")
+        st.warning("Master Hub is empty. Check Alchemist module.")
 
 # ======================= AGENT 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
