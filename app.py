@@ -3,19 +3,68 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from scipy import stats
+import streamlit.components.v1 as components
 
 # ---------------------------------------------------------
 # 1. PAGE CONFIGURATION & UI SETUP
 # ---------------------------------------------------------
 st.set_page_config(page_title="CMU Campaign Intelligence", layout="wide", initial_sidebar_state="expanded")
 
-# Simulated Custom Component Placeholder for 3D Hero
-st.markdown("""
-    <div style='background-color: #000; padding: 40px; border-radius: 10px; text-align: center; color: white; margin-bottom: 20px;'>
-        <h1 style='color: #C41230;'>CMU Campaign Intelligence</h1>
-        <p><i>[ 3D Particle System Canvas Placeholder (WebGL/Three.js) ]</i></p>
-    </div>
-""", unsafe_allow_html=True)
+# Real 3D Particle System using Three.js embedded in Streamlit
+st.markdown("<h1 style='text-align: center; color: #C41230; font-family: sans-serif;'>CMU Campaign Intelligence</h1>", unsafe_allow_html=True)
+
+components.html(
+    """
+    <style> body { margin: 0; overflow: hidden; background-color: #111; border-radius: 10px; } canvas { display: block; } </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / 400, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({alpha: true});
+        renderer.setSize(window.innerWidth, 400); // 400px height for hero banner
+        document.body.appendChild(renderer.domElement);
+
+        const geometry = new THREE.BufferGeometry();
+        const particlesCount = 3000;
+        const posArray = new Float32Array(particlesCount * 3);
+        
+        for(let i = 0; i < particlesCount * 3; i++) {
+            posArray[i] = (Math.random() - 0.5) * 10;
+        }
+        
+        geometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const material = new THREE.PointsMaterial({
+            size: 0.02, 
+            color: 0xC41230 // CMU Red
+        });
+        
+        const particlesMesh = new THREE.Points(geometry, material);
+        scene.add(particlesMesh);
+        camera.position.z = 3;
+
+        // Mouse interaction
+        let mouseX = 0; let mouseY = 0;
+        document.addEventListener('mousemove', (event) => {
+            mouseX = event.clientX / window.innerWidth - 0.5;
+            mouseY = event.clientY / window.innerHeight - 0.5;
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            particlesMesh.rotation.y += 0.001;
+            particlesMesh.rotation.x += 0.001;
+            
+            // Particles react to mouse
+            particlesMesh.rotation.y += mouseX * 0.05;
+            particlesMesh.rotation.x += mouseY * 0.05;
+            
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+    """,
+    height=400,
+)
 
 # ---------------------------------------------------------
 # 2. DATA LOADING & CLEANING FUNCTIONS (Cached for performance)
@@ -41,8 +90,13 @@ def load_and_clean_data():
         melted_ga['Day_Number'] = melted_ga['Day'].str.extract('(\d+)').astype(float)
         melted_ga['User_Count'] = pd.to_numeric(melted_ga['User_Count'], errors='coerce').fillna(0)
 
-        # --- Cleaning Anomaly 3: String/Numeric Type Mismatches in Google Ads ---
+        # --- Cleaning Anomaly 3: String/Numeric Type Mismatches & Totals in Google Ads ---
         gads_perf.replace('--', np.nan, inplace=True)
+        
+        # Drop the aggregate 'Total' rows that Google puts at the bottom of CSVs to prevent math errors
+        if 'Ad name' in gads_perf.columns:
+            gads_perf = gads_perf[~gads_perf['Ad name'].astype(str).str.contains('Total', case=False, na=False)]
+            
         cols_to_clean = ['Clicks', 'Impr.', 'CTR', 'Cost']
         for col in cols_to_clean:
             if col in gads_perf.columns:
@@ -82,7 +136,6 @@ def create_master_view(index_df, ga_utm, gads_perf, linkedin_clean):
     else:
         ga_agg = pd.DataFrame(columns=['utm_clean', 'Total_Website_Users', 'Average_Engagement_Rate'])
 
-    # Mock Spend Data based on files (Replace 'Cost'/'Total Spend' with actual column names if they differ slightly)
     # Grouping Google Ads Spend
     if 'Ad name' in gads_perf.columns and 'Cost' in gads_perf.columns:
         gads_perf['utm_clean'] = gads_perf['Ad name'].astype(str).str.lower().str.strip()
@@ -99,18 +152,25 @@ def create_master_view(index_df, ga_utm, gads_perf, linkedin_clean):
 
     # Merge everything to the Index Hub
     master_df = index_df.copy()
-    master_df = pd.merge(master_df, ga_agg, on='utm_clean', how='left')
-    master_df = pd.merge(master_df, gads_agg, on='utm_clean', how='left')
-    master_df = pd.merge(master_df, li_agg, on='utm_clean', how='left')
+    if 'utm_clean' in master_df.columns:
+        master_df = pd.merge(master_df, ga_agg, on='utm_clean', how='left')
+        master_df = pd.merge(master_df, gads_agg, on='utm_clean', how='left')
+        master_df = pd.merge(master_df, li_agg, on='utm_clean', how='left')
 
-    # Fill NA and calculate Cost Per Website User
-    master_df.fillna({'Total_GAds_Spend': 0, 'Total_LinkedIn_Spend': 0, 'Total_Website_Users': 0}, inplace=True)
-    master_df['Total_Combined_Spend'] = master_df['Total_GAds_Spend'] + master_df['Total_LinkedIn_Spend']
-    
-    # NEW FIX: Safe division to prevent ZeroDivisionError
-    master_df['CPWU'] = master_df['Total_Combined_Spend'].div(
-        master_df['Total_Website_Users'].replace(0, np.nan)
-    ).fillna(0)
+        # Fill NA and calculate Cost Per Website User
+        master_df.fillna({'Total_GAds_Spend': 0, 'Total_LinkedIn_Spend': 0, 'Total_Website_Users': 0}, inplace=True)
+        master_df['Total_Combined_Spend'] = master_df['Total_GAds_Spend'] + master_df['Total_LinkedIn_Spend']
+        
+        # Safe division to prevent ZeroDivisionError
+        master_df['CPWU'] = master_df['Total_Combined_Spend'].div(
+            master_df['Total_Website_Users'].replace(0, np.nan)
+        ).fillna(0)
+    else:
+        # Fallback if mapping key isn't found
+        master_df['Total_Combined_Spend'] = 0
+        master_df['Total_Website_Users'] = 0
+        master_df['CPWU'] = 0
+        master_df['Average_Engagement_Rate'] = 0
     
     return master_df
 
@@ -223,9 +283,13 @@ with tab3:
             },
             template="plotly_dark"
         )
+        
         # Add Crosshairs for average lines
-        fig2.add_hline(y=valid_master['Total_Website_Users'].mean(), line_dash="dot", annotation_text="Avg Users", annotation_position="top left")
-        fig2.add_vline(x=valid_master['Total_Combined_Spend'].mean(), line_dash="dot", annotation_text="Avg Spend", annotation_position="top right")
+        avg_users = valid_master['Total_Website_Users'].mean()
+        avg_spend = valid_master['Total_Combined_Spend'].mean()
+        
+        fig2.add_hline(y=avg_users, line_dash="dot", annotation_text="Avg Users", annotation_position="top left")
+        fig2.add_vline(x=avg_spend, line_dash="dot", annotation_text="Avg Spend", annotation_position="top right")
         
         st.plotly_chart(fig2, use_container_width=True)
     else:
