@@ -106,8 +106,11 @@ def create_master_view(index_df, ga_utm, gads_perf, linkedin_clean):
     # Fill NA and calculate Cost Per Website User
     master_df.fillna({'Total_GAds_Spend': 0, 'Total_LinkedIn_Spend': 0, 'Total_Website_Users': 0}, inplace=True)
     master_df['Total_Combined_Spend'] = master_df['Total_GAds_Spend'] + master_df['Total_LinkedIn_Spend']
-    master_df['CPWU'] = np.where(master_df['Total_Website_Users'] > 0, 
-                                 master_df['Total_Combined_Spend'] / master_df['Total_Website_Users'], 0)
+    
+    # NEW FIX: Safe division to prevent ZeroDivisionError
+    master_df['CPWU'] = master_df['Total_Combined_Spend'].div(
+        master_df['Total_Website_Users'].replace(0, np.nan)
+    ).fillna(0)
     
     return master_df
 
