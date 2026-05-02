@@ -175,14 +175,29 @@ if current_page == "home":
     st.markdown("<h1 style='text-align: center; color: #C41230; font-weight: 800; margin-top: -10px; font-size: 42px;'>CMU DATA NEXUS</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #6D6E71;'>Explore the visual map. <b>Hover & click</b> a colored node.</p>", unsafe_allow_html=True)
     
-    # 3D Iframe: White background, CMU Brand Particles, Full Screen Height
+    # 3D Iframe: White background, Heavy Black Particles, Node Tabs
     three_js_cmu_galaxy = """
     <!DOCTYPE html>
     <html>
     <head>
         <style> 
-            body { margin: 0; overflow: hidden; background-color: #ffffff; } 
+            body { margin: 0; overflow: hidden; background-color: #ffffff; font-family: sans-serif; } 
             canvas { display: block; width: 100vw; height: 100vh; }
+            .node-tab {
+                position: absolute;
+                background: rgba(255, 255, 255, 0.95);
+                border: 2px solid #C41230;
+                padding: 6px 12px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 13px;
+                color: #222;
+                pointer-events: none; /* Let clicks pass through to the canvas! */
+                transform: translate(-50%, -150%);
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                transition: transform 0.2s, opacity 0.2s;
+                opacity: 0.8;
+            }
         </style>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -203,22 +218,18 @@ if current_page == "home":
             controls.autoRotate = true; 
             controls.autoRotateSpeed = 0.5;
 
-            // 1. CMU Brand Particle Galaxy
+            // 1. CMU Brand Particle Galaxy (Heavily weighted towards Black)
             const pCount = 15000;
             const pGeo = new THREE.BufferGeometry();
             const pos = new Float32Array(pCount * 3);
             const colors = new Float32Array(pCount * 3);
 
-            // CMU Official Colors
-            const cmuColors = [
-                new THREE.Color(0xC41230), // Tartan Red
-                new THREE.Color(0x222222), // Carnegie Black
-                new THREE.Color(0x6D6E71), // Iron Gray
-                new THREE.Color(0xE2C044)  // Gold (Accent)
-            ];
+            const colorBlack = new THREE.Color(0x111111); // Dark Gray/Black
+            const colorRed = new THREE.Color(0xC41230);   // Tartan Red
+            const colorGray = new THREE.Color(0x6D6E71);  // Iron Gray
+            const colorGold = new THREE.Color(0xE2C044);  // Gold
 
             for(let i=0; i<pCount; i++) {
-                // Spherical distribution for a more galaxy-like shape
                 const r = 25 * Math.cbrt(Math.random());
                 const theta = Math.random() * 2 * Math.PI;
                 const phi = Math.acos(2 * Math.random() - 1);
@@ -227,8 +238,19 @@ if current_page == "home":
                 pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
                 pos[i*3+2] = r * Math.cos(phi);
 
-                // Assign random CMU color
-                const c = cmuColors[Math.floor(Math.random() * cmuColors.length)];
+                // Probability Distribution: 70% Black, 15% Red, 10% Gray, 5% Gold
+                const rand = Math.random();
+                let c;
+                if (rand < 0.70) {
+                    c = colorBlack;
+                } else if (rand < 0.85) {
+                    c = colorRed;
+                } else if (rand < 0.95) {
+                    c = colorGray;
+                } else {
+                    c = colorGold;
+                }
+
                 colors[i*3] = c.r;
                 colors[i*3+1] = c.g;
                 colors[i*3+2] = c.b;
@@ -240,7 +262,7 @@ if current_page == "home":
                 size: 0.05, 
                 vertexColors: true, 
                 transparent: true, 
-                opacity: 0.6
+                opacity: 0.7
             });
             const particleSystem = new THREE.Points(pGeo, pMat);
             scene.add(particleSystem);
@@ -268,17 +290,19 @@ if current_page == "home":
             });
             scene.add(core);
 
-            // 3. Clickable Orbiting Nodes
+            // 3. Clickable Orbiting Nodes WITH HTML TABS
             const agents = [];
+            const htmlTabs = [];
             const nodesConfig = [
-                { color: 0xE2C044, url: "?page=explorer" }, // Yellow
-                { color: 0xE87A5D, url: "?page=cleaner" },  // Orange
-                { color: 0x44BBA4, url: "?page=analysis" }, // Green
-                { color: 0x00A6D6, url: "?page=dashboard" },// Blue
-                { color: 0x9B5DE5, url: "?page=graph" }     // Purple
+                { name: "Explore", color: 0xE2C044, url: "?page=explorer" }, // Yellow
+                { name: "Clean", color: 0xE87A5D, url: "?page=cleaner" },    // Orange
+                { name: "Stats", color: 0x44BBA4, url: "?page=analysis" },   // Green
+                { name: "Dashboard", color: 0x00A6D6, url: "?page=dashboard" },// Blue
+                { name: "Graph", color: 0x9B5DE5, url: "?page=graph" }       // Purple
             ];
             
             nodesConfig.forEach((config, i) => {
+                // Create Sphere
                 const s = new THREE.Mesh(
                     new THREE.SphereGeometry(0.8, 32, 32), 
                     new THREE.MeshStandardMaterial({
@@ -292,10 +316,18 @@ if current_page == "home":
                 s.userData = { url: config.url, angle: a }; 
                 scene.add(s);
                 agents.push(s);
+
+                // Create HTML Tab Overlay
+                const tab = document.createElement('div');
+                tab.className = 'node-tab';
+                tab.innerText = config.name;
+                tab.style.borderColor = '#' + config.color.toString(16).padStart(6, '0'); // Match border to sphere color
+                document.body.appendChild(tab);
+                htmlTabs.push({ element: tab, mesh: s });
             });
 
             // Lighting setup optimized for white background
-            scene.add(new THREE.AmbientLight(0xffffff, 0.9)); // Bright ambient
+            scene.add(new THREE.AmbientLight(0xffffff, 0.9)); 
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
             dirLight.position.set(5, 10, 5);
             scene.add(dirLight);
@@ -355,9 +387,35 @@ if current_page == "home":
                 // Slow rotation for the entire galaxy
                 particleSystem.rotation.y = elapsedTime * 0.02;
                 
-                // Bobbing motion for nodes
-                agents.forEach(agent => {
+                // Bobbing motion for nodes and update HTML tabs
+                agents.forEach((agent, i) => {
                     agent.position.y += Math.sin(elapsedTime * 2 + agent.userData.angle) * 0.015;
+
+                    // Sync HTML Tabs to 3D Space
+                    const vector = agent.position.clone();
+                    vector.project(camera);
+                    
+                    const x = (vector.x * .5 + .5) * window.innerWidth;
+                    const y = (vector.y * -.5 + .5) * window.innerHeight;
+                    
+                    const tabElement = htmlTabs[i].element;
+                    // Hide tab if it goes behind the camera
+                    if (vector.z > 1) {
+                        tabElement.style.display = 'none';
+                    } else {
+                        tabElement.style.display = 'block';
+                        tabElement.style.left = x + 'px';
+                        tabElement.style.top = (y - 30) + 'px';
+                        
+                        // Highlight tab if sphere is hovered
+                        if (agent.scale.x > 1.1) {
+                            tabElement.style.opacity = '1';
+                            tabElement.style.transform = 'translate(-50%, -150%) scale(1.1)';
+                        } else {
+                            tabElement.style.opacity = '0.8';
+                            tabElement.style.transform = 'translate(-50%, -150%) scale(1)';
+                        }
+                    }
                 });
 
                 controls.update(); 
@@ -513,4 +571,3 @@ elif current_page == "graph":
         components.html(html_data, height=650)
     else:
         st.warning("Insufficient categorical data loaded to generate Knowledge Graph.")
-        
