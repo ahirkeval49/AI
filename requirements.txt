@@ -2,8 +2,8 @@ streamlit
 pandas
 numpy
 plotly
-scikit-learn
-pyvis
 scipy
 statsmodels
 streamlit-extras
+networkx
+pyvis
