@@ -6,3 +6,4 @@ scikit-learn
 pyvis
 scipy
 statsmodels
+streamlit-extras
