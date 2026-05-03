@@ -67,32 +67,28 @@ query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
 # ---------------------------------------------------------
-# 2. OMNI-LOCATOR: DEPLOYMENT PATH RESOLUTION
+# 2. OMNI-LOCATOR: DEPLOYMENT PATH RESOLUTION (ROOT UPGRADE)
 # ---------------------------------------------------------
 @st.cache_data
-def get_data_dir():
-    """Recursively searches for the 'data' directory in GitHub/Streamlit Cloud."""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    potential_paths = [
-        os.path.join(current_dir, 'data'),
-        os.path.join(current_dir, '..', 'data'),
-        os.path.join(current_dir, '..', '..', 'data'),
-        os.path.join(os.getcwd(), 'data')
-    ]
-    for path in potential_paths:
-        if os.path.exists(path) and os.path.isdir(path):
-            return path
-    return 'data' # Fallback
-
-DATA_DIR = get_data_dir()
-
 def get_file_path(filename):
-    """Bypasses Linux case-sensitivity issues by matching files to lower."""
+    """
+    Scans the root directory, script directory, and a data folder to find the file.
+    Bypasses Linux case-sensitivity issues by matching files to lower().
+    """
     target = filename.lower()
-    if os.path.exists(DATA_DIR):
-        for f in os.listdir(DATA_DIR):
-            if f.lower() == target:
-                return os.path.join(DATA_DIR, f)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    search_dirs = [
+        os.getcwd(),                    # 1. Root of the GitHub Repo
+        base_dir,                       # 2. Where the script lives
+        os.path.join(os.getcwd(), 'data'), # 3. Fallback Data folder
+        os.path.join(base_dir, 'data')
+    ]
+    
+    for d in search_dirs:
+        if os.path.exists(d) and os.path.isdir(d):
+            for f in os.listdir(d):
+                if f.lower() == target:
+                    return os.path.join(d, f)
     return None
 
 ALL_FILES = [
@@ -171,7 +167,7 @@ def build_master_hub():
         for f in ['GA_FY25_UTM_Totals_Jul2024-Jun2025.csv', 'GA_FY26_UTM_Totals_Jul-Dec2025.csv']:
             path = get_file_path(f)
             if path:
-                _df = pd.read_csv(path)
+                _df = pd.read_csv(path, skiprows=1) # Google Analytics typically drops the summary row
                 ga_key = find_col(_df, ['Session campaign', 'Campaign'])
                 if ga_key:
                     _df['utm_clean'] = normalize_key(_df[ga_key])
@@ -217,7 +213,7 @@ def load_timeseries_data():
         for f in ['GA_FY25_TimeSeries (1).csv', 'GA_FY26_TimeSeries.csv']:
             path = get_file_path(f)
             if path:
-                ts_dfs.append(pd.read_csv(path))
+                ts_dfs.append(pd.read_csv(path, skiprows=1))
         if ts_dfs:
             ts = pd.concat(ts_dfs, ignore_index=True)
             date_col = find_col(ts, ['Date', 'Day', 'Day Index'])
@@ -350,7 +346,8 @@ elif current_page == "explorer":
     f = st.selectbox("Select Target CSV", ALL_FILES)
     path = get_file_path(f)
     if path:
-        df = pd.read_csv(path, skiprows=1 if 'UTM_Totals' in f else 0)
+        # Check for summary rows typical in GA exports
+        df = pd.read_csv(path, skiprows=1 if 'UTM_Totals' in f or 'TimeSeries' in f else 0)
         
         t1, t2, t3, t4 = st.tabs(["📊 Data Viewer", "🔍 Data Profile", "📈 Descriptive Stats", "🚨 Orphan ID Scan"])
         with t1:
@@ -386,9 +383,10 @@ elif current_page == "explorer":
                         else:
                             st.success("✅ Clean: All parsed IDs map correctly to the Master Index.")
                     else: st.warning("No campaign key column found to cross-reference.")
+                else: st.warning("UCM Campaign Index not found to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your deployment directory but could not locate the raw file. Check GitHub casing.</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your deployment directory but could not locate the raw file.</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -410,7 +408,7 @@ elif current_page == "cleaner":
         st.success(f"✅ Master Hub Synthesized. {len(master_df)} campaigns merged.")
         st.dataframe(master_df, use_container_width=True)
     else:
-        st.error("Alchemist failed to synthesize. Please ensure Index and GA/GAds files are present in data/ directory.")
+        st.error("Alchemist failed to synthesize. Please ensure Index and GA/GAds files are present in the repository.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
@@ -449,7 +447,7 @@ elif current_page == "analysis":
             c3.metric("Cost per Acquired User", "N/A")
             st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient spend variance for regression.</strong></div>", unsafe_allow_html=True)
 
-        # Video Resonance Correlation (Requires V100 and Engagement Rate from Real Data)
+        # Video Resonance Correlation
         if 'V100' in master_df.columns and 'Engagement_Rate' in master_df.columns:
             valid_vid = master_df[(master_df['V100'] > 0) & (master_df['Engagement_Rate'] > 0)]
             if len(valid_vid) > 2 and valid_vid['V100'].var() > 0:
@@ -468,7 +466,6 @@ elif current_page == "analysis":
 elif current_page == "dashboard":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     
-    # 🚨 ONLY AGENT 4 GETS SIDEBAR FILTERS
     with st.sidebar:
         st.markdown(f"<h2 style='color: {WHITE};'>🎯 Oracle Filters</h2>", unsafe_allow_html=True)
         if not master_df.empty:
@@ -508,7 +505,6 @@ elif current_page == "dashboard":
             st.plotly_chart(fig_bar, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
             
-        # Real Retention Heatmap 
         st.markdown("<div class='console-card'><h3>🔥 Video Retention Heatmap (Real GAds Data)</h3>", unsafe_allow_html=True)
         v_cols = ['V25', 'V50', 'V75', 'V100']
         if all(c in f_df.columns for c in v_cols):
