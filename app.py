@@ -57,9 +57,6 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-if "agent_memory" not in st.session_state:
-    st.session_state.agent_memory = {"audit_logs": {}, "synthesis_stats": {}, "model_results": {}}
-
 query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
@@ -165,10 +162,17 @@ def build_master_hub():
                 g_key = find_col(df, ['ad name', 'campaign'])
                 if g_key:
                     df['utm_clean'] = normalize_key(df[g_key])
+                    
                     cost_col = find_col(df, ['cost', 'spend'])
-                    if cost_col:
-                        df['Cost'] = clean_num(df[cost_col])
-                        g_dfs.append(df[['utm_clean', 'Cost']])
+                    if cost_col: df['Cost'] = clean_num(df[cost_col])
+                    
+                    clk_col = find_col(df, ['clicks'])
+                    if clk_col: df['Clicks'] = clean_num(df[clk_col])
+                        
+                    extract_cols = ['utm_clean']
+                    if cost_col: extract_cols.append('Cost')
+                    if clk_col: extract_cols.append('Clicks')
+                    g_dfs.append(df[extract_cols])
                     
                     v_cols = {'video played to 25%': 'V25', 'video played to 50%': 'V50', 'video played to 75%': 'V75', 'video played to 100%': 'V100'}
                     has_video = False
@@ -181,18 +185,23 @@ def build_master_hub():
                         extract_cols = ['utm_clean'] + [v for v in v_cols.values() if v in df.columns]
                         v_dfs.append(df[extract_cols])
 
-        g_agg = pd.concat(g_dfs, ignore_index=True).groupby('utm_clean').agg(GAds_Spend=('Cost', 'sum')).reset_index() if g_dfs else pd.DataFrame(columns=['utm_clean', 'GAds_Spend'])
+        g_agg = pd.concat(g_dfs, ignore_index=True).groupby('utm_clean').agg(
+            GAds_Spend=('Cost', 'sum') if 'Cost' in pd.concat(g_dfs).columns else None,
+            GAds_Clicks=('Clicks', 'sum') if 'Clicks' in pd.concat(g_dfs).columns else None
+        ).reset_index() if g_dfs else pd.DataFrame(columns=['utm_clean', 'GAds_Spend', 'GAds_Clicks'])
         v_agg = pd.concat(v_dfs, ignore_index=True).groupby('utm_clean').mean().reset_index() if v_dfs else pd.DataFrame()
 
-        li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
+        li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend', 'LI_Clicks'])
         li = smart_load('linkedinadperformance')
         if li is not None and not li.empty:
             li_key = find_col(li, ['campaign name', 'campaign'])
             if li_key:
                 li['utm_clean'] = normalize_key(li[li_key])
                 li_spend = find_col(li, ['total spend', 'spend', 'cost'])
+                li_clk = find_col(li, ['clicks'])
                 li['LI_Spend'] = clean_num(li[li_spend]) if li_spend else 0.0
-                li_agg = li.groupby('utm_clean').agg(LI_Spend=('LI_Spend', 'sum')).reset_index()
+                li['LI_Clicks'] = clean_num(li[li_clk]) if li_clk else 0.0
+                li_agg = li.groupby('utm_clean').agg(LI_Spend=('LI_Spend', 'sum'), LI_Clicks=('LI_Clicks', 'sum')).reset_index()
 
         ga_dfs = []
         for f in ['gafy25utmtotals', 'gafy26utmtotals']:
@@ -227,9 +236,16 @@ def build_master_hub():
         hub['Category'] = hub['Category'].fillna("Orphaned / Uncategorized")
         hub['GAds_Spend'] = pd.to_numeric(hub.get('GAds_Spend', 0.0), errors='coerce').fillna(0.0)
         hub['LI_Spend'] = pd.to_numeric(hub.get('LI_Spend', 0.0), errors='coerce').fillna(0.0)
+        hub['GAds_Clicks'] = pd.to_numeric(hub.get('GAds_Clicks', 0.0), errors='coerce').fillna(0.0)
+        hub['LI_Clicks'] = pd.to_numeric(hub.get('LI_Clicks', 0.0), errors='coerce').fillna(0.0)
         hub['Total_Users'] = pd.to_numeric(hub.get('Total_Users', 0.0), errors='coerce').fillna(0.0)
         
         hub['Total_Spend'] = hub['GAds_Spend'] + hub['LI_Spend']
+        hub['Total_Clicks'] = hub['GAds_Clicks'] + hub['LI_Clicks']
+        
+        # Calculate Drop-off Rate (Clicks vs GA Users)
+        hub['Dropoff_Rate'] = np.where(hub['Total_Clicks'] > 0, ((hub['Total_Clicks'] - hub['Total_Users']) / hub['Total_Clicks']).clip(lower=0, upper=1), 0.0)
+        
         hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0.0)
         hub['Vendor'] = np.where(hub['GAds_Spend'] > 0, 'Google Ads', np.where(hub['LI_Spend'] > 0, 'LinkedIn', 'Organic/Other'))
         return hub
@@ -413,18 +429,29 @@ elif current_page == "explorer":
                     else: st.warning("No campaign key column found to cross-reference.")
                 else: st.warning("UCM Campaign Index not found to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your root repository but could not load the file. Streamlit cache may need a reboot.</div>", unsafe_allow_html=True)
-
-    # OMNI-ANALYZER UI INTEGRATION
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown("<h3 style='color: white;'>🌐 Global Ecosystem Cross-Reference (Omni-Analyzer)</h3>", unsafe_allow_html=True)
+            
+    # ---------------------------------------------------------
+    # NEW: CLICK-FRAUD & TRAFFIC DROP-OFF ENGINE
+    # ---------------------------------------------------------
+    st.markdown("<hr><h3 style='color: white;'>🛡️ Traffic Drop-off & Fraud Detection</h3>", unsafe_allow_html=True)
     st.markdown("""
     <div class='console-card'>
-        <p>The Omni-Analyzer scans all raw files in your repository. It automatically infers column semantics and calculates mathematical overlap between datasets to discover hidden relational join keys.</p>
+        <p>This engine compares raw clicks from Google Ads/LinkedIn against actual website sessions in Google Analytics. A massive drop-off indicates budget wasted on bot traffic, accidental clicks, or severe landing page friction.</p>
     </div>
     """, unsafe_allow_html=True)
+    
+    if not master_df.empty:
+        fraud_df = master_df[(master_df['Total_Clicks'] > 100) & (master_df['Dropoff_Rate'] > 0.60)][['utm_clean', 'Total_Clicks', 'Total_Users', 'Dropoff_Rate', 'Total_Spend']].sort_values('Dropoff_Rate', ascending=False)
+        if not fraud_df.empty:
+            st.error(f"🚨 WARNING: Found {len(fraud_df)} active campaigns with over 60% traffic drop-off.")
+            st.dataframe(fraud_df.style.format({'Dropoff_Rate': '{:.1%}', 'Total_Spend': '${:,.2f}'}), use_container_width=True)
+        else:
+            st.success("✅ Ecosystem Healthy: No campaigns exhibit severe (>60%) click-to-session drop-off.")
+    else:
+        st.info("Master Hub not synthesized yet.")
 
+    # OMNI-ANALYZER
+    st.markdown("<hr><h3 style='color: white;'>🌐 Global Ecosystem Cross-Reference (Omni-Analyzer)</h3>", unsafe_allow_html=True)
     if st.button("Initialize Deep Scan"):
         with st.spinner("Analyzing ecosystem entropy..."):
             all_dfs = {}
@@ -437,15 +464,9 @@ elif current_page == "explorer":
                 st.markdown("<div class='console-card'><h4>🔗 Automated Join Recommendations</h4>", unsafe_allow_html=True)
                 cross_ref_results = OmniAnalyzer.cross_reference_ecosystem(all_dfs)
                 st.dataframe(cross_ref_results, use_container_width=True)
-                st.caption("High match confidence indicates these two columns should be used as Primary/Foreign keys for SQL joins.")
-                st.markdown("</div>", unsafe_allow_html=True)
-                
-                sample_file = list(all_dfs.keys())[0]
-                st.markdown(f"<div class='console-card'><h4>🧠 Auto-Inferred Schema: <code>{sample_file}</code></h4>", unsafe_allow_html=True)
-                st.dataframe(OmniAnalyzer.infer_schema(all_dfs[sample_file]), use_container_width=True)
                 st.markdown("</div>", unsafe_allow_html=True)
             else:
-                st.error("Not enough files loaded to run cross-referencing. Ensure files are in the root directory.")
+                st.error("Not enough files loaded to run cross-referencing.")
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -476,20 +497,31 @@ elif current_page == "analysis":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     st.markdown("<h1>🧪 Step 3: Quantitative Strategist</h1>", unsafe_allow_html=True)
     
-    st.markdown("""
-    <div class="console-card">
-        <h3 style="margin-top: 0;">Predictive Modeling: The Law of Diminishing Returns</h3>
-        <p style="margin-bottom: 0;">
-        Linear correlation assumes infinite scale. Here, the Strategist applies <strong>Polynomial Regression (Degree 2)</strong> to actual Spend vs User Acquisition data to mathematically identify the exact dollar amount where an ad campaign hits "fatigue" and stops generating profitable return.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    
     if not master_df.empty:
+        # ---------------------------------------------------------
+        # NEW: BUDGET REALLOCATION ENGINE
+        # ---------------------------------------------------------
+        st.markdown("<div class='console-card'><h3 style='margin-top: 0;'>💡 AI CMO: Budget Reallocation Engine</h3>", unsafe_allow_html=True)
+        valid_camps = master_df[(master_df['Total_Spend'] > 500) & (master_df['Total_Users'] > 50)].copy()
+        
+        if len(valid_camps) >= 2:
+            best_camp = valid_camps.loc[valid_camps['CPWU'].idxmin()]
+            worst_camp = valid_camps.loc[valid_camps['CPWU'].idxmax()]
+            
+            realloc_amount = 5000
+            users_lost = realloc_amount / worst_camp['CPWU']
+            users_gained = realloc_amount / best_camp['CPWU']
+            net_lift = users_gained - users_lost
+            
+            st.success(f"**Recommendation:** Reallocate **${realloc_amount:,.0f}** from `{worst_camp['utm_clean']}` (CPWU: ${worst_camp['CPWU']:.2f}) to `{best_camp['utm_clean']}` (CPWU: ${best_camp['CPWU']:.2f}).")
+            st.info(f"📈 **Projected Impact:** This move yields a net gain of **+{int(net_lift):,}** users to the university website without increasing the total fiscal budget.")
+        else:
+            st.warning("Insufficient active campaigns to generate a budget reallocation recommendation.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
         c1, c2, c3 = st.columns(3)
         valid_spend = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)].copy()
         
-        # Spend Correlation & Polynomial Regression
         if len(valid_spend) > 3 and valid_spend['Total_Spend'].var() > 0:
             corr, _ = stats.pearsonr(valid_spend['Total_Spend'], valid_spend['Total_Users'])
             c1.metric("Spend Correlation (Pearson)", f"{corr:.2f}")
@@ -497,14 +529,11 @@ elif current_page == "analysis":
             c3.metric("System-Wide CPA", f"${valid_spend['CPWU'].mean():.2f}")
             
             st.markdown("<div class='console-card'><h3>Curve Fitting: Diminishing Returns Model</h3>", unsafe_allow_html=True)
-            
-            # Generate Polynomial Fit (Degree 2 for Fatigue Curve)
             x_data = valid_spend['Total_Spend']
             y_data = valid_spend['Total_Users']
             poly_coefs = np.polyfit(x_data, y_data, 2)
             poly_func = np.poly1d(poly_coefs)
             
-            # Create a smooth line for the plot
             x_line = np.linspace(x_data.min(), x_data.max(), 100)
             y_line = poly_func(x_line)
             
@@ -518,7 +547,6 @@ elif current_page == "analysis":
         else:
             st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient mapped spend variance for polynomial regression.</strong></div>", unsafe_allow_html=True)
 
-        # Video Resonance Correlation
         if 'V100' in master_df.columns and 'Engagement_Rate' in master_df.columns:
             valid_vid = master_df[(master_df['V100'] > 0) & (master_df['Engagement_Rate'] > 0)]
             if len(valid_vid) > 2 and valid_vid['V100'].var() > 0:
@@ -550,6 +578,20 @@ elif current_page == "dashboard":
     if not master_df.empty:
         f_df = master_df[(master_df['Vendor'].isin(sel_vendor)) & (master_df['Category'].isin(sel_cat))]
         
+        # ---------------------------------------------------------
+        # NEW: EXECUTIVE SUMMARY & DOWNLOAD
+        # ---------------------------------------------------------
+        st.markdown("<div class='console-card'>", unsafe_allow_html=True)
+        col_text, col_dl = st.columns([3, 1])
+        with col_text:
+            st.markdown("### 📋 Executive Summary")
+            overall_dropoff = (f_df['Total_Clicks'].sum() - f_df['Total_Users'].sum()) / f_df['Total_Clicks'].sum() if f_df['Total_Clicks'].sum() > 0 else 0
+            st.markdown(f"Currently viewing **{len(f_df)}** active campaigns across selected filters. The total tracked ecosystem spend is **${f_df['Total_Spend'].sum():,.2f}**, generating **{f_df['Total_Users'].sum():,.0f}** users. The overall click-to-website drop-off rate is **{overall_dropoff:.1%}**.")
+        with col_dl:
+            csv = f_df.to_csv(index=False).encode('utf-8')
+            st.download_button(label="📥 Download Cleaned Report", data=csv, file_name='CMU_Filtered_Master_Hub.csv', mime='text/csv')
+        st.markdown("</div>", unsafe_allow_html=True)
+
         m1, m2, m3 = st.columns(3)
         m1.metric("Filtered Acquired Users", f"{f_df.get('Total_Users', pd.Series([0])).sum():,.0f}")
         m2.metric("Avg Website Engagement", f"{f_df.get('Engagement_Rate', pd.Series([0])).mean():.1f}%")
@@ -557,26 +599,19 @@ elif current_page == "dashboard":
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # ---------------------------------------------------------
-        # NEW FEATURE: SANKEY ATTRIBUTION WATERFALL
-        # ---------------------------------------------------------
         st.markdown("<div class='console-card'><h3>🌊 Master Attribution Waterfall</h3>", unsafe_allow_html=True)
         if not f_df.empty and f_df['Total_Users'].sum() > 0:
             top_camps = f_df.sort_values('Total_Users', ascending=False).head(15)
-            
             all_nodes = list(top_camps['Vendor'].unique()) + list(top_camps['Category'].unique()) + list(top_camps['utm_clean'].unique())
             node_dict = {node: i for i, node in enumerate(all_nodes)}
-            
             source, target, value = [], [], []
             
-            # Flow 1: Vendor to Category
             v_to_c = top_camps.groupby(['Vendor', 'Category'])['Total_Users'].sum().reset_index()
             for _, row in v_to_c.iterrows():
                 source.append(node_dict[row['Vendor']])
                 target.append(node_dict[row['Category']])
                 value.append(row['Total_Users'])
                 
-            # Flow 2: Category to Campaign
             for _, row in top_camps.iterrows():
                 source.append(node_dict[row['Category']])
                 target.append(node_dict[row['utm_clean']])
@@ -586,17 +621,12 @@ elif current_page == "dashboard":
                 node = dict(pad=15, thickness=20, line=dict(color="black", width=0.5), label=all_nodes, color=CMU_RED),
                 link = dict(source=source, target=target, value=value, color="rgba(109, 110, 113, 0.4)")
             )])
-            
             fig_sankey.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", height=500, margin=dict(t=20, b=20, l=0, r=0))
             st.plotly_chart(fig_sankey, use_container_width=True)
-            st.markdown("<p style='font-size:13px; color:#6D6E71 !important;'><em>Visualizes the flow of User Acquisition from Ad Network → University Department → Specific Campaign. Thickness represents total user volume.</em></p></div>", unsafe_allow_html=True)
         else:
             st.info("Insufficient data to render attribution waterfall.")
-            st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        # ---------------------------------------------------------
-        # Standard Visualizations
-        # ---------------------------------------------------------
         c_left, c_right = st.columns(2)
         with c_left:
             st.markdown("<div class='console-card'><h3>🔵 The Heartbeat: Temporal Velocity</h3>", unsafe_allow_html=True)
@@ -625,6 +655,14 @@ elif current_page == "dashboard":
                 st.plotly_chart(fig_heat, use_container_width=True)
             else: st.info("No video retention data available for selected filters.")
         else: st.info("Video completion columns missing from raw data sources.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='console-card'><h3>🌍 The Attention Economy: Engagement vs Duration</h3>", unsafe_allow_html=True)
+        if 'Session_Duration' in f_df.columns and f_df['Session_Duration'].sum() > 0:
+            fig_att = px.scatter(f_df, x="Engagement_Rate", y="Session_Duration", size="Total_Users", hover_name="utm_clean", color="Vendor", color_discrete_sequence=[CMU_RED, CMU_GREY, "#000000"])
+            fig_att.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", xaxis_title="Engagement Rate (%)", yaxis_title="Avg Session Duration (s)")
+            st.plotly_chart(fig_att, use_container_width=True)
+        else: st.info("Session Duration data unavailable.")
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.error("No data available. Dashboard offline.")
