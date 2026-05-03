@@ -17,12 +17,12 @@ CMU_RED = "#C41230"
 CMU_GREY = "#6D6E71"
 WHITE = "#FFFFFF"
 BLACK = "#0f0f0f" 
-CARD_BG = "#FFFFFF" # Crisp white cards for readability
+CARD_BG = "#FFFFFF" # Changed to White per your request
 TEXT_DARK = "#050505"
 
 st.set_page_config(page_title="CMU Command Center", layout="wide", initial_sidebar_state="collapsed")
 
-# Clean CSS with Custom Button Styling
+# Clean CSS with White Cards & Custom Button Styling
 st.markdown(f"""
 <style>
     .stApp {{ background-color: {BLACK}; color: {WHITE}; }}
@@ -35,9 +35,18 @@ st.markdown(f"""
         border-top: 3px solid {CMU_RED};
     }}
     
-    .console-card p, .console-card div, .console-card span, .console-card li {{ color: {TEXT_DARK} !important; }}
-    .console-card h3, .console-card h4 {{ color: {CMU_RED} !important; }}
-    div[data-baseweb="select"] * {{ color: {TEXT_DARK} !important; }}
+    /* Ensure text inside white cards is dark for readability */
+    .console-card p, .console-card div, .console-card span, .console-card li {{
+        color: {TEXT_DARK} !important;
+    }}
+    .console-card h3, .console-card h4 {{
+        color: {CMU_RED} !important;
+    }}
+    
+    /* Fix Auditor Selectbox Text Color */
+    div[data-baseweb="select"] * {{
+        color: {TEXT_DARK} !important;
+    }}
     
     div[data-testid="stMetricValue"] {{ color: {TEXT_DARK} !important; font-weight: 900; }}
     div[data-testid="stMetricLabel"] {{ color: {CMU_GREY} !important; font-weight: 700; text-transform: uppercase; }}
@@ -47,7 +56,7 @@ st.markdown(f"""
     div.stButton > button {{
         background-color: #222; color: {WHITE}; border: 1px solid #444; border-radius: 8px;
         font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-size: 13px; height: 50px;
-        transition: 0.15s ease-in-out;
+        transition: 0.2s ease-in-out;
     }}
     div.stButton > button:hover {{ background-color: {CMU_RED}; border-color: {CMU_RED}; color: {WHITE} !important; transform: translateY(-2px); }}
     div.stButton > button * {{ color: {WHITE} !important; }}
@@ -56,14 +65,14 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------
-# ROUTING ENGINE (Reads URL Params for 3D Node Clicks)
-# ---------------------------------------------------------
-current_page = st.query_params.get("page", "home")
+# Navigation State Management
+if "page" not in st.session_state:
+    st.session_state.page = "home"
 
 def navigate(page_name):
-    st.query_params["page"] = page_name
-    st.rerun()
+    st.session_state.page = page_name
+
+current_page = st.session_state.page
 
 # ---------------------------------------------------------
 # DATA ENGINEERING: THE SPLIT-KEY PIPELINE
@@ -80,7 +89,7 @@ ALL_FILES = [
 def sanitize_filename(name):
     return re.sub(r'[^a-z0-9]', '', name.lower().replace('.csv', '').replace('.xlsx', ''))
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=60)
 def smart_load(target_name, skiprows=0):
     sanitized_target = sanitize_filename(target_name)
     search_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__)), os.path.join(os.getcwd(), 'data')]
@@ -107,7 +116,7 @@ def normalize_key(series):
 def clean_num(series):
     return pd.to_numeric(series.astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0.0)
 
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def build_master_pipeline():
     try:
         idx_raw = smart_load('ucmcampaignindex')
@@ -145,6 +154,7 @@ def build_master_pipeline():
                     g_df = g_df[~g_df[camp_col].astype(str).str.contains('Total', case=False, na=False)]
                     ext = pd.DataFrame()
                     ext['board_key'] = normalize_key(g_df[camp_col])
+                    
                     cost_col = find_col(g_df, ['cost', 'spend'])
                     clk_col = find_col(g_df, ['clicks'])
                     cpc_col = find_col(g_df, ['avg. cpc', 'cpc'])
@@ -202,7 +212,7 @@ def build_master_pipeline():
     except Exception as e: 
         return pd.DataFrame()
 
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def load_timeseries():
     ts1 = smart_load('gafy25timeseries')
     ts2 = smart_load('gafy26timeseries')
@@ -224,7 +234,7 @@ master_df = build_master_pipeline()
 ts_data = load_timeseries()
 
 # ---------------------------------------------------------
-# UI: FAST NAVIGATION BUTTONS
+# UI: NATIVE BUTTON NAVIGATION
 # ---------------------------------------------------------
 nav_cols = st.columns(5)
 if nav_cols[0].button("Nexus", use_container_width=True): navigate("home")
@@ -239,12 +249,14 @@ st.markdown("<hr style='border-color: #333; margin-top: 0px;'>", unsafe_allow_ht
 if current_page == "home":
     st.markdown(f"<h1 style='text-align: center; font-size: 60px; margin-top: 50px;'>CMU COMMAND CENTER</h1>", unsafe_allow_html=True)
     
-    # Fully functional Hyperlinked 3D Nodes
+    # Custom HTML/JS payload for 3D Galaxy + Native Streamlit callbacks
+    # By omitting the 'url' attribute and adding a 'data-page' custom attribute,
+    # we can use JavaScript's parent.postMessage to communicate with a Streamlit component.
     three_js_galaxy = f"""
     <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body {{ margin: 0; background: {BLACK}; overflow: hidden; font-family: sans-serif; }}
+        body {{ margin: 0; background: {BLACK}; overflow: hidden; }}
         .node-label {{
             position: absolute; background: rgba(196,18,48,0.9); border: 2px solid {WHITE};
             padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer;
@@ -287,37 +299,46 @@ if current_page == "home":
             scene.add(new THREE.Mesh(textGeo, textMat));
         }});
 
-        // The 4 Specific Tab Nodes explicitly routing via URL params
+        // Modified agents array - No URL, using data attribute for postMessage
         const agents = [
-            {{name: "Auditor", url: "?page=explorer", pos: [10, 5, 2]}},
-            {{name: "Dashboard", url: "?page=dashboard", pos: [-10, -5, 4]}},
-            {{name: "Strategist", url: "?page=analysis", pos: [2, 9, -6]}},
-            {{name: "Knowledge Graph", url: "?page=graph", pos: [6, -8, -4]}}
+            {{name: "Auditor", page_target: "explorer", pos: [10, 5, 2]}},
+            {{name: "Dashboard", page_target: "dashboard", pos: [-10, -5, 4]}},
+            {{name: "Strategist", page_target: "analysis", pos: [2, 9, -6]}},
+            {{name: "Knowledge Graph", page_target: "graph", pos: [6, -8, -4]}}
         ];
 
         agents.forEach(a => {{
-            const el = document.createElement('a'); el.className = 'node-label';
-            el.innerText = a.name; el.href = a.url; el.target = "_parent";
+            const el = document.createElement('div'); el.className = 'node-label';
+            el.innerText = a.name; 
+            el.setAttribute('data-page', a.page_target);
+            // Add click event listener to send message to Streamlit
+            el.addEventListener('click', function() {{
+                window.parent.postMessage({{
+                    type: 'streamlit:setComponentValue',
+                    data: a.page_target
+                }}, '*');
+            }});
             document.body.appendChild(el); a.el = el;
             const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({{color: "{CMU_GREY}", shininess: 100}}));
             mesh.position.set(...a.pos); scene.add(mesh); a.mesh = mesh;
         }});
 
         camera.position.z = 30;
-        function animate(){{
-            requestAnimationFrame(animate);
-            agents.forEach(a => {{
-                const vector = a.mesh.position.clone().project(camera);
-                a.el.style.left = (vector.x + 1) / 2 * window.innerWidth + 'px';
-                a.el.style.top = -(vector.y - 1) / 2 * window.innerHeight + 'px';
-            }});
-            controls.update(); renderer.render(scene, camera);
-        }}
+        function animate(){{ requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }}
         animate();
     </script></body></html>
     """
+    
     st.markdown("<div style='margin-top: -30px;'></div>", unsafe_allow_html=True)
-    components.html(three_js_galaxy, height=800)
+    
+    # Render the component and capture the return value
+    # key='3d_nav' ensures the component's state is tracked by Streamlit
+    clicked_page = components.html(three_js_galaxy, height=800)
+    
+    # If the component returns a string (which it will when a node is clicked via postMessage)
+    # update the session state and rerun to navigate
+    if clicked_page:
+        navigate(clicked_page)
 
 # ======================= AGENT 1: FORENSIC AUDITOR =======================
 elif current_page == "explorer":
@@ -453,6 +474,8 @@ elif current_page == "analysis":
     with c2:
         st.markdown("<div class='console-card'><h3>True Quality: Lowest CPQM</h3>", unsafe_allow_html=True)
         st.markdown("<p style='font-size:12px;'>Cost Per Quality Minute (Spend / Engaged Minutes)</p>", unsafe_allow_html=True)
+        
+        # Lower threshold to populate data
         cpqm_df = master_df.copy()
         if not cpqm_df.empty:
             cpqm_df = cpqm_df.sort_values('CPQM', ascending=True).head(8)
@@ -476,7 +499,7 @@ elif current_page == "analysis":
             if words_data:
                 wd_df = pd.DataFrame(words_data).groupby('Keyword').sum().reset_index()
                 wd_df['CTR'] = wd_df['Clicks'] / wd_df['Impr']
-                wd_df = wd_df[wd_df['Impr'] > 1000].sort_values('CTR', ascending=False).head(8)
+                wd_df = wd_df[wd_df['Impr'] > 1000].sort_values('CTR', ascending=False).head(8) # Lowered threshold to guarantee population
                 st.dataframe(wd_df[['Keyword', 'CTR', 'Clicks', 'Impr']].style.format({'CTR': '{:.2%}', 'Clicks': '{:,.0f}', 'Impr': '{:,.0f}'}), use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
         
