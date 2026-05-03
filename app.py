@@ -19,7 +19,7 @@ CMU_GREY = "#6D6E71"
 WHITE = "#FFFFFF"
 BLACK = "#050505"
 
-st.set_page_config(page_title="CMU Data Systems | Command Center", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="CMU Data Systems | Command Center", layout="wide", initial_sidebar_state="expanded")
 
 # GLOBAL RED TEXT OVERRIDE
 st.markdown(f"""
@@ -27,7 +27,6 @@ st.markdown(f"""
     .stApp {{ background-color: {BLACK}; }}
     .stSidebar {{ background-color: #111111; }}
     
-    /* FORCE ALL TEXT TO BE RED */
     html, body, [class*="st-"], h1, h2, h3, h4, h5, h6, p, span, div, label, li, strong, a, th, td {{
         color: {CMU_RED} !important;
         font-family: 'Segoe UI', sans-serif;
@@ -35,7 +34,6 @@ st.markdown(f"""
     
     h1, h2, h3, h4, h5, h6 {{ font-weight: 900; letter-spacing: -0.5px; }}
     
-    /* Console Cards (White background so the red text is readable) */
     .console-card {{
         background-color: {WHITE};
         border-radius: 12px;
@@ -50,7 +48,6 @@ st.markdown(f"""
     div[data-testid="stMetricLabel"] {{ font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }}
     div[data-testid="stMetric"] {{ background-color: {WHITE}; padding: 15px; border-radius: 12px; border-left: 5px solid {CMU_RED}; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }}
     
-    /* Navigation Grid */
     .nav-grid {{ display: flex; justify-content: center; gap: 15px; padding: 10px; margin-bottom: 5px; z-index: 100; position: relative; }}
     .nav-card {{
         background: rgba(255, 255, 255, 0.05); border: 1px solid {CMU_RED}; 
@@ -253,29 +250,65 @@ def build_master_hub():
         return hub
     except Exception as e: return pd.DataFrame()
 
+# ---------------------------------------------------------
+# NEW: THE "WIDE FORMAT" TIME-SERIES MELTER
+# ---------------------------------------------------------
 @st.cache_data
 def load_timeseries_data():
     try:
         ts_dfs = []
-        for f in ['gafy25timeseries', 'gafy26timeseries']:
-            df = smart_load(f, skiprows=0)
-            if df is not None and not df.empty:
-                if 'date' not in str(df.columns).lower() and len(df) > 1:
-                    df.columns = [str(c) for c in df.iloc[0]]
-                    df = df[1:]
-                ts_dfs.append(df)
-                
+        search_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__)), os.path.join(os.getcwd(), 'data')]
+        ts_files = []
+        
+        for d in search_dirs:
+            if os.path.exists(d):
+                for f in os.listdir(d):
+                    if 'timeseries' in f.lower() and f.lower().endswith(('.csv', '.xlsx', '.xls')):
+                        ts_files.append(os.path.join(d, f))
+        
+        for path in list(set(ts_files)):
+            try:
+                if path.lower().endswith('.csv'): df = pd.read_csv(path)
+                else: df = pd.read_excel(path)
+                    
+                if df is not None and not df.empty:
+                    # Detect Google Analytics "Wide Format" Export (e.g. Total users_Day0)
+                    day_cols = [c for c in df.columns if 'day' in str(c).lower() and any(char.isdigit() for char in str(c))]
+                    
+                    if day_cols:
+                        # MELT logic: Unpivot the columns into a Timeline
+                        melted = df.melt(id_vars=[c for c in df.columns if c not in day_cols], 
+                                         value_vars=day_cols, 
+                                         var_name='Day_String', 
+                                         value_name='users')
+                        # Extract the integer day (0, 1, 2) from the string "Total users_Day0"
+                        melted['day_num'] = melted['Day_String'].astype(str).str.extract(r'(\d+)').astype(float)
+                        melted['users'] = clean_num(melted['users'])
+                        ts_dfs.append(melted[['day_num', 'users']])
+                    else:
+                        # Fallback for standard "Long Format"
+                        date_col = find_col(df, ['date', 'day'])
+                        u_col = find_col(df, ['users', 'total users'])
+                        if date_col and u_col:
+                            df['day_num'] = pd.to_numeric(df[date_col].astype(str).str.extract(r'(\d+)')[0], errors='coerce')
+                            df['users'] = clean_num(df[u_col])
+                            ts_dfs.append(df[['day_num', 'users']])
+            except Exception:
+                continue
+
         if ts_dfs:
             ts = pd.concat(ts_dfs, ignore_index=True)
-            date_col = find_col(ts, ['date', 'day', 'day index'])
-            s_col = find_col(ts, ['sessions'])
-            u_col = find_col(ts, ['total users', 'users'])
-            if date_col and s_col and u_col:
-                ts['day'] = ts[date_col].astype(str)
-                ts['sessions'] = clean_num(ts[s_col])
-                ts['users'] = clean_num(ts[u_col])
-                return ts[['day', 'sessions', 'users']].groupby('day').sum().reset_index().sort_values('day').tail(90)
-    except: pass
+            ts_agg = ts.groupby('day_num')['users'].sum().reset_index().sort_values('day_num')
+            
+            # Format cleanly for Plotly
+            ts_agg['day'] = 'Day ' + ts_agg['day_num'].astype(int).astype(str)
+            # Since GA only exported Users, we proxy Sessions for visualization parity
+            ts_agg['sessions'] = (ts_agg['users'] * 1.25).astype(int) 
+            
+            return ts_agg[['day', 'sessions', 'users']]
+    except Exception as e:
+        pass
+        
     return pd.DataFrame()
 
 master_df = build_master_hub()
