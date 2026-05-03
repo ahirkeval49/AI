@@ -67,8 +67,34 @@ query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
 # ---------------------------------------------------------
-# 2. DATA LOADERS & AGGRESSIVE ETL NORMALIZATION (REAL DATA ONLY)
+# 2. OMNI-LOCATOR: DEPLOYMENT PATH RESOLUTION
 # ---------------------------------------------------------
+@st.cache_data
+def get_data_dir():
+    """Recursively searches for the 'data' directory in GitHub/Streamlit Cloud."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    potential_paths = [
+        os.path.join(current_dir, 'data'),
+        os.path.join(current_dir, '..', 'data'),
+        os.path.join(current_dir, '..', '..', 'data'),
+        os.path.join(os.getcwd(), 'data')
+    ]
+    for path in potential_paths:
+        if os.path.exists(path) and os.path.isdir(path):
+            return path
+    return 'data' # Fallback
+
+DATA_DIR = get_data_dir()
+
+def get_file_path(filename):
+    """Bypasses Linux case-sensitivity issues by matching files to lower."""
+    target = filename.lower()
+    if os.path.exists(DATA_DIR):
+        for f in os.listdir(DATA_DIR):
+            if f.lower() == target:
+                return os.path.join(DATA_DIR, f)
+    return None
+
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
     "GA_FY25_TimeSeries (1).csv", "GA_FY26_TimeSeries.csv",
@@ -95,8 +121,9 @@ def build_master_hub():
     try:
         # Load Index
         idx = pd.DataFrame()
-        if os.path.exists('data/UCM Campaign Index.csv'):
-            idx = pd.read_csv('data/UCM Campaign Index.csv')
+        idx_path = get_file_path('UCM Campaign Index.csv')
+        if idx_path:
+            idx = pd.read_csv(idx_path)
             utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID', 'Landing Page (UTM)'])
             idx['utm_clean'] = normalize_key(idx[utm_col]) if utm_col else ""
             if 'Category' not in idx.columns: idx['Category'] = "Uncategorized"
@@ -104,8 +131,9 @@ def build_master_hub():
         # GAds Totals & Video Retention Metrics
         g_dfs, v_dfs = [], []
         for f in ['GAds_FY25_Totals_Jul2024-Jun2025.csv', 'GAds_FY26_Totals_Jul-Dec2025.csv', 'GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad.csv']:
-            if os.path.exists(f'data/{f}'):
-                df = pd.read_csv(f'data/{f}')
+            path = get_file_path(f)
+            if path:
+                df = pd.read_csv(path)
                 g_key = find_col(df, ['Ad name', 'Campaign', 'Campaign Name'])
                 if g_key:
                     df['utm_clean'] = normalize_key(df[g_key])
@@ -128,8 +156,9 @@ def build_master_hub():
 
         # LinkedIn Pipeline
         li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
-        if os.path.exists('data/LinkedIn_Ad_Performance_Feb2024_Dec2025.csv'):
-            li = pd.read_csv('data/LinkedIn_Ad_Performance_Feb2024_Dec2025.csv')
+        li_path = get_file_path('LinkedIn_Ad_Performance_Feb2024_Dec2025.csv')
+        if li_path:
+            li = pd.read_csv(li_path)
             li_key = find_col(li, ['Campaign Name', 'Campaign'])
             if li_key:
                 li['utm_clean'] = normalize_key(li[li_key])
@@ -140,8 +169,9 @@ def build_master_hub():
         # GA Metrics Pipeline
         ga_dfs = []
         for f in ['GA_FY25_UTM_Totals_Jul2024-Jun2025.csv', 'GA_FY26_UTM_Totals_Jul-Dec2025.csv']:
-            if os.path.exists(f'data/{f}'):
-                _df = pd.read_csv(f'data/{f}')
+            path = get_file_path(f)
+            if path:
+                _df = pd.read_csv(path)
                 ga_key = find_col(_df, ['Session campaign', 'Campaign'])
                 if ga_key:
                     _df['utm_clean'] = normalize_key(_df[ga_key])
@@ -185,8 +215,9 @@ def load_timeseries_data():
     try:
         ts_dfs = []
         for f in ['GA_FY25_TimeSeries (1).csv', 'GA_FY26_TimeSeries.csv']:
-            if os.path.exists(f'data/{f}'):
-                ts_dfs.append(pd.read_csv(f'data/{f}'))
+            path = get_file_path(f)
+            if path:
+                ts_dfs.append(pd.read_csv(path))
         if ts_dfs:
             ts = pd.concat(ts_dfs, ignore_index=True)
             date_col = find_col(ts, ['Date', 'Day', 'Day Index'])
@@ -317,8 +348,9 @@ elif current_page == "explorer":
 
     st.markdown("<h3 style='color: white;'>Interactive Schema Explorer</h3>", unsafe_allow_html=True)
     f = st.selectbox("Select Target CSV", ALL_FILES)
-    if os.path.exists(f'data/{f}'):
-        df = pd.read_csv(f'data/{f}')
+    path = get_file_path(f)
+    if path:
+        df = pd.read_csv(path, skiprows=1 if 'UTM_Totals' in f else 0)
         
         t1, t2, t3, t4 = st.tabs(["📊 Data Viewer", "🔍 Data Profile", "📈 Descriptive Stats", "🚨 Orphan ID Scan"])
         with t1:
@@ -340,8 +372,9 @@ elif current_page == "explorer":
             if 'UCM Campaign Index.csv' in f:
                 st.info("Viewing the Master Index. No cross-reference possible.")
             else:
-                if os.path.exists('data/UCM Campaign Index.csv'):
-                    idx_df = pd.read_csv('data/UCM Campaign Index.csv')
+                idx_path = get_file_path('UCM Campaign Index.csv')
+                if idx_path:
+                    idx_df = pd.read_csv(idx_path)
                     idx_keys = set(normalize_key(idx_df[find_col(idx_df, ['UTM campaign', 'Campaign_ID'])]).tolist())
                     t_key = find_col(df, ['Ad name', 'Campaign', 'Session campaign'])
                     if t_key:
@@ -355,7 +388,7 @@ elif current_page == "explorer":
                     else: st.warning("No campaign key column found to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> Ensure {f} is in the data/ directory.</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your deployment directory but could not locate the raw file. Check GitHub casing.</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -413,6 +446,7 @@ elif current_page == "analysis":
         else:
             c1.metric("Spend Correlation", "N/A")
             c2.metric("Significant Campaigns", len(valid_spend))
+            c3.metric("Cost per Acquired User", "N/A")
             st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient spend variance for regression.</strong></div>", unsafe_allow_html=True)
 
         # Video Resonance Correlation (Requires V100 and Engagement Rate from Real Data)
@@ -434,6 +468,7 @@ elif current_page == "analysis":
 elif current_page == "dashboard":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     
+    # 🚨 ONLY AGENT 4 GETS SIDEBAR FILTERS
     with st.sidebar:
         st.markdown(f"<h2 style='color: {WHITE};'>🎯 Oracle Filters</h2>", unsafe_allow_html=True)
         if not master_df.empty:
@@ -450,9 +485,9 @@ elif current_page == "dashboard":
         f_df = master_df[(master_df['Vendor'].isin(sel_vendor)) & (master_df['Category'].isin(sel_cat))]
         
         m1, m2, m3 = st.columns(3)
-        m1.metric("Filtered Acquired Users", f"{f_df['Total_Users'].sum():,.0f}")
-        m2.metric("Avg Website Engagement", f"{f_df['Engagement_Rate'].mean():.1f}%")
-        m3.metric("Filtered Spend Tracked", f"${f_df['Total_Spend'].sum():,.2f}")
+        m1.metric("Filtered Acquired Users", f"{f_df.get('Total_Users', pd.Series([0])).sum():,.0f}")
+        m2.metric("Avg Website Engagement", f"{f_df.get('Engagement_Rate', pd.Series([0])).mean():.1f}%")
+        m3.metric("Filtered Spend Tracked", f"${f_df.get('Total_Spend', pd.Series([0])).sum():,.2f}")
         
         st.markdown("<br>", unsafe_allow_html=True)
         
