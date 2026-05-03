@@ -9,6 +9,7 @@ from pyvis.network import Network
 import tempfile
 import os
 import re
+from itertools import combinations
 
 # ---------------------------------------------------------
 # CMU BRAND COLORS & CONFIGURATION
@@ -63,7 +64,7 @@ query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
 # ---------------------------------------------------------
-# 2. OMNI-LOADER ENGINE
+# 2. OMNI-LOADER & OMNI-ANALYZER ENGINES
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -71,7 +72,7 @@ ALL_FILES = [
     "GA_FY25_UTM_Totals_Jul2024-Jun2025.csv", "GA_FY26_UTM_Totals_Jul-Dec2025.csv",
     "GAds_AudiencePerformance_by_Campaign_FY24-FY26.csv", "GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad.csv",
     "GAds_FY25_Totals_Jul2024-Jun2025.csv", "GAds_FY26_Totals_Jul-Dec2025.csv",
-    "LinkedIn_Ad_Performance_Feb2024_Dec2025.csv", "UCM Campaign Index.csv"
+    "LinkedIn_Ad_Performance_Feb2024_Dec2025.csv", "UCM_Campaign_Index.csv"
 ]
 
 def sanitize_filename(name):
@@ -81,19 +82,65 @@ def sanitize_filename(name):
 def smart_load(target_name, skiprows=0):
     sanitized_target = sanitize_filename(target_name)
     search_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__)), os.path.join(os.getcwd(), 'data')]
-    
     for d in search_dirs:
         if os.path.exists(d) and os.path.isdir(d):
             for f in os.listdir(d):
                 if sanitize_filename(f) == sanitized_target or sanitize_filename(f).startswith(sanitized_target):
                     path = os.path.join(d, f)
                     try:
-                        if f.lower().endswith('.csv'):
-                            return pd.read_csv(path, skiprows=skiprows)
-                        elif f.lower().endswith(('.xls', '.xlsx')):
-                            return pd.read_excel(path, skiprows=skiprows)
+                        if f.lower().endswith('.csv'): return pd.read_csv(path, skiprows=skiprows)
+                        elif f.lower().endswith(('.xls', '.xlsx')): return pd.read_excel(path, skiprows=skiprows)
                     except Exception: pass
     return None
+
+class OmniAnalyzer:
+    @staticmethod
+    def infer_schema(df):
+        """Automatically infers the semantic purpose of every column in a dataset."""
+        profile = []
+        for col in df.columns:
+            dtype = str(df[col].dtype)
+            nulls = df[col].isna().sum()
+            unique_pct = df[col].nunique() / len(df) if len(df) > 0 else 0
+            
+            if pd.api.types.is_numeric_dtype(df[col]): semantic = "📊 Metric (Calculable)"
+            elif pd.api.types.is_datetime64_any_dtype(df[col]) or any(word in str(col).lower() for word in ['date', 'day', 'time']):
+                semantic = "⏰ Temporal (Time-Series)"
+            elif unique_pct > 0.4 and df[col].dtype == "object": semantic = "🔑 Potential Key (High Cardinality)"
+            elif unique_pct <= 0.4 and df[col].dtype == "object": semantic = "🏷️ Dimension (Categorical)"
+            else: semantic = "❓ Unclassified"
+                
+            profile.append({"Column": col, "Inferred Purpose": semantic, "Data Type": dtype, "Missing Values": nulls})
+        return pd.DataFrame(profile)
+
+    @staticmethod
+    def cross_reference_ecosystem(df_dict):
+        """Compares every string column across all files to find automated join keys."""
+        links = []
+        files = list(df_dict.keys())
+        for f1, f2 in combinations(files, 2):
+            df1, df2 = df_dict[f1], df_dict[f2]
+            cols1 = df1.select_dtypes(include=['object']).columns
+            cols2 = df2.select_dtypes(include=['object']).columns
+            
+            for c1 in cols1:
+                for c2 in cols2:
+                    set1 = set(df1[c1].dropna().astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True))
+                    set2 = set(df2[c2].dropna().astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True))
+                    if not set1 or not set2: continue
+                    
+                    intersection = len(set1.intersection(set2))
+                    smaller_set = min(len(set1), len(set2))
+                    overlap_score = intersection / smaller_set if smaller_set > 0 else 0
+                    
+                    if overlap_score > 0.20: 
+                        links.append({
+                            "Source File": f1, "Source Column": c1,
+                            "Target File": f2, "Target Column": c2,
+                            "Match Confidence": f"{overlap_score*100:.1f}%"
+                        })
+        result_df = pd.DataFrame(links)
+        return result_df.sort_values(by="Match Confidence", ascending=False) if not result_df.empty else pd.DataFrame()
 
 def find_col(df, aliases):
     if df is None or df.empty: return None
@@ -110,9 +157,8 @@ def normalize_key(series):
 
 @st.cache_data
 def build_master_hub():
-    """Agent 2 (Alchemist) Synthesis using OUTER JOIN logic to preserve unmapped data."""
+    """Agent 2 (Alchemist) Synthesis."""
     try:
-        # Load Index safely
         idx = smart_load('ucmcampaignindex')
         if idx is not None and not idx.empty:
             utm_col = find_col(idx, ['utm campaign', 'campaign_id', 'utm_combined_id'])
@@ -123,7 +169,6 @@ def build_master_hub():
         else:
             idx = pd.DataFrame(columns=['utm_clean', 'Category'])
 
-        # GAds Pipeline
         g_dfs, v_dfs = [], []
         for f in ['gadsfy25totals', 'gadsfy26totals', 'gadsfy24fy26monthlyweeklyperformance']:
             df = smart_load(f)
@@ -136,7 +181,6 @@ def build_master_hub():
                         df['Cost'] = clean_num(df[cost_col])
                         g_dfs.append(df[['utm_clean', 'Cost']])
                     
-                    # Video Data extraction
                     v_cols = {'video played to 25%': 'V25', 'video played to 50%': 'V50', 'video played to 75%': 'V75', 'video played to 100%': 'V100'}
                     has_video = False
                     for search_key, target_col in v_cols.items():
@@ -151,7 +195,6 @@ def build_master_hub():
         g_agg = pd.concat(g_dfs, ignore_index=True).groupby('utm_clean').agg(GAds_Spend=('Cost', 'sum')).reset_index() if g_dfs else pd.DataFrame(columns=['utm_clean', 'GAds_Spend'])
         v_agg = pd.concat(v_dfs, ignore_index=True).groupby('utm_clean').mean().reset_index() if v_dfs else pd.DataFrame()
 
-        # LinkedIn Pipeline
         li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
         li = smart_load('linkedinadperformance')
         if li is not None and not li.empty:
@@ -162,7 +205,6 @@ def build_master_hub():
                 li['LI_Spend'] = clean_num(li[li_spend]) if li_spend else 0.0
                 li_agg = li.groupby('utm_clean').agg(LI_Spend=('LI_Spend', 'sum')).reset_index()
 
-        # GA Metrics Pipeline
         ga_dfs = []
         for f in ['gafy25utmtotals', 'gafy26utmtotals']:
             _df = smart_load(f, skiprows=0) 
@@ -185,15 +227,11 @@ def build_master_hub():
                     
         ga_agg = pd.concat(ga_dfs, ignore_index=True).groupby('utm_clean').agg(Total_Users=('Total_Users', 'sum'), Engagement_Rate=('Engagement_Rate', 'mean'), Session_Duration=('Session_Duration', 'mean')).reset_index() if ga_dfs else pd.DataFrame(columns=['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration'])
 
-        # OUTER JOIN SYNTHESIS (Keeps all data even if Index mapping fails)
         hub = pd.merge(ga_agg, g_agg, on='utm_clean', how='outer')
         hub = pd.merge(hub, li_agg, on='utm_clean', how='outer')
         if not v_agg.empty: hub = pd.merge(hub, v_agg, on='utm_clean', how='left')
         
-        # Bring in Category from Index
         hub = pd.merge(hub, idx, on='utm_clean', how='left')
-        
-        # Cleanup
         hub['utm_clean'].replace('', np.nan, inplace=True)
         hub = hub.dropna(subset=['utm_clean'])
         
@@ -205,7 +243,6 @@ def build_master_hub():
         hub['Total_Spend'] = hub['GAds_Spend'] + hub['LI_Spend']
         hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0.0)
         hub['Vendor'] = np.where(hub['GAds_Spend'] > 0, 'Google Ads', np.where(hub['LI_Spend'] > 0, 'LinkedIn', 'Organic/Other'))
-        
         return hub
     except Exception as e: return pd.DataFrame()
 
@@ -343,7 +380,7 @@ elif current_page == "explorer":
     st.markdown("""
     <div class="console-card">
         <h3 style="margin-top: 0;">Integrity Rules Engine</h3>
-        <p style="margin-bottom: 0;">The Auditor uses fuzzy-matching to scan raw files directly from your GitHub root directory to identify <strong>Orphan IDs</strong> and anomalies before they corrupt downstream models.</p>
+        <p style="margin-bottom: 0;">The Auditor scans raw files directly from your repository root to identify <strong>Orphan IDs</strong> and anomalies before they corrupt downstream models.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -369,7 +406,7 @@ elif current_page == "explorer":
         with t4:
             st.markdown("<div class='console-card'>", unsafe_allow_html=True)
             st.markdown("<h4>Orphan ID Detection</h4>", unsafe_allow_html=True)
-            if 'UCM_Campaign_Index' in f or 'UCM Campaign Index' in f:
+            if 'ucmcampaignindex' in sanitize_filename(f):
                 st.info("Viewing the Master Index. No cross-reference possible.")
             else:
                 idx_df = smart_load('ucmcampaignindex')
@@ -389,6 +426,37 @@ elif current_page == "explorer":
             st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your root repository but could not load the file. Streamlit cache may need a reboot.</div>", unsafe_allow_html=True)
+
+    # OMNI-ANALYZER UI INTEGRATION
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: white;'>🌐 Global Ecosystem Cross-Reference (Omni-Analyzer)</h3>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class='console-card'>
+        <p>The Omni-Analyzer scans all raw files in your repository. It automatically infers column semantics and calculates mathematical overlap between datasets to discover hidden relational join keys.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("Initialize Deep Scan"):
+        with st.spinner("Analyzing ecosystem entropy..."):
+            all_dfs = {}
+            for file in ALL_FILES:
+                loaded_df = smart_load(file)
+                if loaded_df is not None and not loaded_df.empty:
+                    all_dfs[file] = loaded_df
+            
+            if len(all_dfs) > 1:
+                st.markdown("<div class='console-card'><h4>🔗 Automated Join Recommendations</h4>", unsafe_allow_html=True)
+                cross_ref_results = OmniAnalyzer.cross_reference_ecosystem(all_dfs)
+                st.dataframe(cross_ref_results, use_container_width=True)
+                st.caption("High match confidence indicates these two columns should be used as Primary/Foreign keys for SQL joins.")
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+                sample_file = list(all_dfs.keys())[0]
+                st.markdown(f"<div class='console-card'><h4>🧠 Auto-Inferred Schema: <code>{sample_file}</code></h4>", unsafe_allow_html=True)
+                st.dataframe(OmniAnalyzer.infer_schema(all_dfs[sample_file]), use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                st.error("Not enough files loaded to run cross-referencing. Ensure files are in the root directory.")
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -506,7 +574,6 @@ elif current_page == "dashboard":
             st.plotly_chart(fig_bar, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
             
-        # Real Retention Heatmap 
         st.markdown("<div class='console-card'><h3>🔥 Video Retention Heatmap (Real GAds Data)</h3>", unsafe_allow_html=True)
         v_cols = ['V25', 'V50', 'V75', 'V100']
         if all(c in f_df.columns for c in v_cols):
