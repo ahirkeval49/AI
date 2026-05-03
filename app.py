@@ -255,7 +255,7 @@ if current_page == "home":
             padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer;
             transition: 0.3s; pointer-events: auto; text-decoration: none; color: {WHITE}; font-size: 12px;
             box-shadow: 0 4px 15px rgba(196,18,48,0.4); text-transform: uppercase;
-            z-index: 10000; /* FIXED: Ensure labels sit above the 3D canvas layer */
+            z-index: 10000; /* Ensures tags are clickable above canvas */
         }}
         .node-label:hover {{ transform: scale(1.1); background: {WHITE}; color: {CMU_RED}; }}
     </style></head>
@@ -305,12 +305,12 @@ if current_page == "home":
             el.className = 'node-label';
             el.innerText = a.name; 
             
-            // FIXED: Prevent OrbitControls from swallowing the mouse click
+            // PREVENT CLICK SWALLOWING
             el.addEventListener('mousedown', (e) => e.stopPropagation());
             el.addEventListener('touchstart', (e) => e.stopPropagation());
             el.addEventListener('click', (e) => e.stopPropagation());
 
-            // FIXED: Use _parent instead of _top to bypass iframe strict sandbox limits
+            // USE PARENT TARGET
             el.href = "?page=" + a.page_target;
             el.target = "_parent";
             
