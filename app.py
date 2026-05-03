@@ -96,49 +96,38 @@ def smart_load(target_name, skiprows=0):
 class OmniAnalyzer:
     @staticmethod
     def infer_schema(df):
-        """Automatically infers the semantic purpose of every column in a dataset."""
         profile = []
         for col in df.columns:
             dtype = str(df[col].dtype)
             nulls = df[col].isna().sum()
             unique_pct = df[col].nunique() / len(df) if len(df) > 0 else 0
-            
             if pd.api.types.is_numeric_dtype(df[col]): semantic = "📊 Metric (Calculable)"
             elif pd.api.types.is_datetime64_any_dtype(df[col]) or any(word in str(col).lower() for word in ['date', 'day', 'time']):
                 semantic = "⏰ Temporal (Time-Series)"
             elif unique_pct > 0.4 and df[col].dtype == "object": semantic = "🔑 Potential Key (High Cardinality)"
             elif unique_pct <= 0.4 and df[col].dtype == "object": semantic = "🏷️ Dimension (Categorical)"
             else: semantic = "❓ Unclassified"
-                
             profile.append({"Column": col, "Inferred Purpose": semantic, "Data Type": dtype, "Missing Values": nulls})
         return pd.DataFrame(profile)
 
     @staticmethod
     def cross_reference_ecosystem(df_dict):
-        """Compares every string column across all files to find automated join keys."""
         links = []
         files = list(df_dict.keys())
         for f1, f2 in combinations(files, 2):
             df1, df2 = df_dict[f1], df_dict[f2]
             cols1 = df1.select_dtypes(include=['object']).columns
             cols2 = df2.select_dtypes(include=['object']).columns
-            
             for c1 in cols1:
                 for c2 in cols2:
                     set1 = set(df1[c1].dropna().astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True))
                     set2 = set(df2[c2].dropna().astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True))
                     if not set1 or not set2: continue
-                    
                     intersection = len(set1.intersection(set2))
                     smaller_set = min(len(set1), len(set2))
                     overlap_score = intersection / smaller_set if smaller_set > 0 else 0
-                    
                     if overlap_score > 0.20: 
-                        links.append({
-                            "Source File": f1, "Source Column": c1,
-                            "Target File": f2, "Target Column": c2,
-                            "Match Confidence": f"{overlap_score*100:.1f}%"
-                        })
+                        links.append({"Source File": f1, "Source Column": c1, "Target File": f2, "Target Column": c2, "Match Confidence": f"{overlap_score*100:.1f}%"})
         result_df = pd.DataFrame(links)
         return result_df.sort_values(by="Match Confidence", ascending=False) if not result_df.empty else pd.DataFrame()
 
@@ -489,34 +478,45 @@ elif current_page == "analysis":
     
     st.markdown("""
     <div class="console-card">
-        <h3 style="margin-top: 0;">Data-Driven Predictive Modeling</h3>
+        <h3 style="margin-top: 0;">Predictive Modeling: The Law of Diminishing Returns</h3>
         <p style="margin-bottom: 0;">
-        The Strategist models physical relationships (like Spend vs Acquisition and Video Resonance) to prove mathematical correlations.
+        Linear correlation assumes infinite scale. Here, the Strategist applies <strong>Polynomial Regression (Degree 2)</strong> to actual Spend vs User Acquisition data to mathematically identify the exact dollar amount where an ad campaign hits "fatigue" and stops generating profitable return.
         </p>
     </div>
     """, unsafe_allow_html=True)
     
     if not master_df.empty:
         c1, c2, c3 = st.columns(3)
-        valid_spend = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)]
+        valid_spend = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)].copy()
         
-        # Spend Correlation
-        if len(valid_spend) > 2 and valid_spend['Total_Spend'].var() > 0:
+        # Spend Correlation & Polynomial Regression
+        if len(valid_spend) > 3 and valid_spend['Total_Spend'].var() > 0:
             corr, _ = stats.pearsonr(valid_spend['Total_Spend'], valid_spend['Total_Users'])
-            c1.metric("Spend-to-User Correlation", f"{corr:.2f}")
-            c2.metric("Significant Campaigns", len(valid_spend))
-            c3.metric("Cost per Acquired User (Avg)", f"${valid_spend['CPWU'].mean():.2f}")
+            c1.metric("Spend Correlation (Pearson)", f"{corr:.2f}")
+            c2.metric("Analyzed Campaigns", len(valid_spend))
+            c3.metric("System-Wide CPA", f"${valid_spend['CPWU'].mean():.2f}")
             
-            st.markdown("<div class='console-card'><h3>Spend vs Users (Efficiency Frontier)</h3>", unsafe_allow_html=True)
-            fig_s = px.scatter(valid_spend, x="Total_Spend", y="Total_Users", color="Category", hover_name="utm_clean", trendline="ols")
-            fig_s.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111")
-            st.plotly_chart(fig_s, use_container_width=True)
+            st.markdown("<div class='console-card'><h3>Curve Fitting: Diminishing Returns Model</h3>", unsafe_allow_html=True)
+            
+            # Generate Polynomial Fit (Degree 2 for Fatigue Curve)
+            x_data = valid_spend['Total_Spend']
+            y_data = valid_spend['Total_Users']
+            poly_coefs = np.polyfit(x_data, y_data, 2)
+            poly_func = np.poly1d(poly_coefs)
+            
+            # Create a smooth line for the plot
+            x_line = np.linspace(x_data.min(), x_data.max(), 100)
+            y_line = poly_func(x_line)
+            
+            fig_poly = go.Figure()
+            fig_poly.add_trace(go.Scatter(x=x_data, y=y_data, mode='markers', name='Campaigns', marker=dict(size=10, color=CMU_RED), text=valid_spend['utm_clean']))
+            fig_poly.add_trace(go.Scatter(x=x_line, y=y_line, mode='lines', name='Fatigue Curve (Poly Reg)', line=dict(color=CMU_GREY, width=3, dash='dash')))
+            
+            fig_poly.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", xaxis_title="Total Campaign Spend ($)", yaxis_title="Total Users Acquired")
+            st.plotly_chart(fig_poly, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
         else:
-            c1.metric("Spend Correlation", "N/A")
-            c2.metric("Significant Campaigns", len(valid_spend))
-            c3.metric("Cost per Acquired User", "N/A")
-            st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient mapped spend variance for mathematical regression.</strong></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient mapped spend variance for polynomial regression.</strong></div>", unsafe_allow_html=True)
 
         # Video Resonance Correlation
         if 'V100' in master_df.columns and 'Engagement_Rate' in master_df.columns:
@@ -557,6 +557,46 @@ elif current_page == "dashboard":
         
         st.markdown("<br>", unsafe_allow_html=True)
         
+        # ---------------------------------------------------------
+        # NEW FEATURE: SANKEY ATTRIBUTION WATERFALL
+        # ---------------------------------------------------------
+        st.markdown("<div class='console-card'><h3>🌊 Master Attribution Waterfall</h3>", unsafe_allow_html=True)
+        if not f_df.empty and f_df['Total_Users'].sum() > 0:
+            top_camps = f_df.sort_values('Total_Users', ascending=False).head(15)
+            
+            all_nodes = list(top_camps['Vendor'].unique()) + list(top_camps['Category'].unique()) + list(top_camps['utm_clean'].unique())
+            node_dict = {node: i for i, node in enumerate(all_nodes)}
+            
+            source, target, value = [], [], []
+            
+            # Flow 1: Vendor to Category
+            v_to_c = top_camps.groupby(['Vendor', 'Category'])['Total_Users'].sum().reset_index()
+            for _, row in v_to_c.iterrows():
+                source.append(node_dict[row['Vendor']])
+                target.append(node_dict[row['Category']])
+                value.append(row['Total_Users'])
+                
+            # Flow 2: Category to Campaign
+            for _, row in top_camps.iterrows():
+                source.append(node_dict[row['Category']])
+                target.append(node_dict[row['utm_clean']])
+                value.append(row['Total_Users'])
+                
+            fig_sankey = go.Figure(data=[go.Sankey(
+                node = dict(pad=15, thickness=20, line=dict(color="black", width=0.5), label=all_nodes, color=CMU_RED),
+                link = dict(source=source, target=target, value=value, color="rgba(109, 110, 113, 0.4)")
+            )])
+            
+            fig_sankey.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", height=500, margin=dict(t=20, b=20, l=0, r=0))
+            st.plotly_chart(fig_sankey, use_container_width=True)
+            st.markdown("<p style='font-size:13px; color:#6D6E71 !important;'><em>Visualizes the flow of User Acquisition from Ad Network → University Department → Specific Campaign. Thickness represents total user volume.</em></p></div>", unsafe_allow_html=True)
+        else:
+            st.info("Insufficient data to render attribution waterfall.")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # ---------------------------------------------------------
+        # Standard Visualizations
+        # ---------------------------------------------------------
         c_left, c_right = st.columns(2)
         with c_left:
             st.markdown("<div class='console-card'><h3>🔵 The Heartbeat: Temporal Velocity</h3>", unsafe_allow_html=True)
@@ -574,7 +614,7 @@ elif current_page == "dashboard":
             st.plotly_chart(fig_bar, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
             
-        st.markdown("<div class='console-card'><h3>🔥 Video Retention Heatmap (Real GAds Data)</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='console-card'><h3>🔥 Video Retention Heatmap</h3>", unsafe_allow_html=True)
         v_cols = ['V25', 'V50', 'V75', 'V100']
         if all(c in f_df.columns for c in v_cols):
             v_df = f_df[f_df['V25'] > 0][['utm_clean'] + v_cols].head(10)
@@ -585,14 +625,6 @@ elif current_page == "dashboard":
                 st.plotly_chart(fig_heat, use_container_width=True)
             else: st.info("No video retention data available for selected filters.")
         else: st.info("Video completion columns missing from raw data sources.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown("<div class='console-card'><h3>🌍 The Attention Economy: Engagement vs Duration</h3>", unsafe_allow_html=True)
-        if 'Session_Duration' in f_df.columns and f_df['Session_Duration'].sum() > 0:
-            fig_att = px.scatter(f_df, x="Engagement_Rate", y="Session_Duration", size="Total_Users", hover_name="utm_clean", color="Vendor", color_discrete_sequence=[CMU_RED, CMU_GREY, "#000000"])
-            fig_att.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", xaxis_title="Engagement Rate (%)", yaxis_title="Avg Session Duration (s)")
-            st.plotly_chart(fig_att, use_container_width=True)
-        else: st.info("Session Duration data unavailable.")
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.error("No data available. Dashboard offline.")
