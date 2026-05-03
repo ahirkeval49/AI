@@ -255,6 +255,7 @@ if current_page == "home":
             padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer;
             transition: 0.3s; pointer-events: auto; text-decoration: none; color: {WHITE}; font-size: 12px;
             box-shadow: 0 4px 15px rgba(196,18,48,0.4); text-transform: uppercase;
+            z-index: 10000; /* FIXED: Ensure labels sit above the 3D canvas layer */
         }}
         .node-label:hover {{ transform: scale(1.1); background: {WHITE}; color: {CMU_RED}; }}
     </style></head>
@@ -303,9 +304,15 @@ if current_page == "home":
             const el = document.createElement('a'); 
             el.className = 'node-label';
             el.innerText = a.name; 
-            // FIXED: Using direct top-level URL navigation to bypass iframe isolation
+            
+            // FIXED: Prevent OrbitControls from swallowing the mouse click
+            el.addEventListener('mousedown', (e) => e.stopPropagation());
+            el.addEventListener('touchstart', (e) => e.stopPropagation());
+            el.addEventListener('click', (e) => e.stopPropagation());
+
+            // FIXED: Use _parent instead of _top to bypass iframe strict sandbox limits
             el.href = "?page=" + a.page_target;
-            el.target = "_top";
+            el.target = "_parent";
             
             document.body.appendChild(el); a.el = el;
             const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({{color: "{CMU_GREY}", shininess: 100}}));
@@ -535,6 +542,3 @@ elif current_page == "graph":
             with open(tmp.name, 'r', encoding='utf-8') as f:
                 html_code = f.read().replace('<style type="text/css">', '<style type="text/css">\n #mynetwork {border: none; outline: none;}\n')
                 components.html(html_code, height=750)
-            os.remove(tmp.name)
-    else:
-        st.error("No joined data available to render graph.")
