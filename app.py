@@ -8,7 +8,6 @@ import streamlit.components.v1 as components
 from pyvis.network import Network
 import tempfile
 import os
-import base64
 
 # ---------------------------------------------------------
 # CMU BRAND COLORS & CONFIGURATION
@@ -24,6 +23,8 @@ st.markdown(f"""
 <style>
     .stApp {{ background-color: {BLACK}; color: {WHITE}; }}
     .stSidebar {{ background-color: #111111; color: {WHITE}; }}
+    
+    /* Global Typography - CMU Branded */
     h1, h2, h3, h4, h5, h6 {{ color: {CMU_RED} !important; font-weight: 900; font-family: 'Segoe UI', sans-serif; letter-spacing: -0.5px; }}
     
     .console-card {{
@@ -43,6 +44,7 @@ st.markdown(f"""
     div[data-testid="stMetricLabel"] {{ color: {CMU_GREY} !important; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }}
     div[data-testid="stMetric"] {{ background-color: {WHITE}; padding: 15px; border-radius: 12px; border-left: 5px solid {CMU_RED}; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }}
     
+    /* Navigation Grid */
     .nav-grid {{ display: flex; justify-content: center; gap: 15px; padding: 10px; margin-bottom: 5px; z-index: 100; position: relative; }}
     .nav-card {{
         background: rgba(255, 255, 255, 0.05); border: 1px solid {CMU_GREY}; 
@@ -52,6 +54,7 @@ st.markdown(f"""
     }}
     .nav-card:hover {{ border-color: {CMU_RED}; transform: translateY(-5px); box-shadow: 0 8px 20px rgba(196,18,48,0.5); background: rgba(196, 18, 48, 0.15); }}
     .nav-title {{ font-size: 10px; font-weight: 900; color: {WHITE}; margin-top: 5px; letter-spacing: 1px; text-transform: uppercase; }}
+    
     header {{ visibility: hidden; }}
 </style>
 """, unsafe_allow_html=True)
@@ -63,7 +66,7 @@ query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
 # ---------------------------------------------------------
-# 2. SMART LOADER ENGINE: SOLVES GITHUB PATHING & EXCEL ISSUES
+# 2. SMART LOADER ENGINE (ROOT DEPLOYMENT FIX)
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -75,27 +78,28 @@ ALL_FILES = [
 ]
 
 @st.cache_data
-def smart_load(filename, skiprows=0):
+def smart_load(base_name, skiprows=0):
     """
-    Searches both Root and /data folders. 
-    Automatically handles .csv or .xlsx regardless of what is requested.
+    Dynamically scans the root GitHub directory.
+    Bypasses case-sensitivity and file extension mismatches.
     """
-    target_name, _ = os.path.splitext(filename.lower())
-    search_dirs = [os.getcwd(), os.path.join(os.getcwd(), 'data')]
+    # Streamlit runs from the root folder, so we check the current working directory
+    search_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__))]
+    target = base_name.lower().replace('.csv', '').replace('.xlsx', '')
     
     for d in search_dirs:
-        if os.path.exists(d) and os.path.isdir(d):
+        if os.path.exists(d):
             for f in os.listdir(d):
-                f_name, f_ext = os.path.splitext(f.lower())
-                if f_name == target_name and f_ext in ['.csv', '.xlsx', '.xls']:
+                f_clean = f.lower().replace('.csv', '').replace('.xlsx', '')
+                if f_clean == target or f_clean.startswith(target):
                     path = os.path.join(d, f)
                     try:
-                        if f_ext == '.csv':
+                        if f.lower().endswith('.csv'):
                             return pd.read_csv(path, skiprows=skiprows)
-                        else:
+                        elif f.lower().endswith(('.xls', '.xlsx')):
                             return pd.read_excel(path, skiprows=skiprows)
-                    except Exception as e:
-                        return None
+                    except Exception:
+                        pass
     return None
 
 def find_col(df, aliases):
@@ -112,8 +116,9 @@ def normalize_key(series):
 
 @st.cache_data
 def build_master_hub():
+    """Agent 2 (Alchemist) Synthesis."""
     try:
-        # Load Index safely
+        # Load Index
         idx = smart_load('UCM Campaign Index')
         if idx is not None and not idx.empty:
             utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID', 'Landing Page (UTM)'])
@@ -130,10 +135,12 @@ def build_master_hub():
                 g_key = find_col(df, ['Ad name', 'Campaign', 'Campaign Name'])
                 if g_key:
                     df['utm_clean'] = normalize_key(df[g_key])
+                    # Cost extraction
                     if find_col(df, ['Cost', 'Spend']):
                         df['Cost'] = clean_num(df[find_col(df, ['Cost', 'Spend'])])
                         g_dfs.append(df[['utm_clean', 'Cost']])
                     
+                    # Video extraction
                     v_cols = {'Video played to 25%': 'V25', 'Video played to 50%': 'V50', 'Video played to 75%': 'V75', 'Video played to 100%': 'V100'}
                     has_video = False
                     for k, v in v_cols.items():
@@ -160,9 +167,9 @@ def build_master_hub():
         # GA Metrics Pipeline
         ga_dfs = []
         for f in ['GA_FY25_UTM_Totals_Jul2024-Jun2025', 'GA_FY26_UTM_Totals_Jul-Dec2025']:
-            _df = smart_load(f, skiprows=0) # Smart load checks headers
+            _df = smart_load(f, skiprows=0)
             if _df is not None and not _df.empty:
-                # If GA exports have an extra summary row, standard drop
+                # Handle summary row drop if present
                 if 'Session campaign' not in _df.columns and len(_df) > 1:
                     _df.columns = _df.iloc[0]
                     _df = _df[1:]
@@ -199,6 +206,7 @@ def build_master_hub():
 
 @st.cache_data
 def load_timeseries_data():
+    """Extracts Real TimeSeries Data."""
     try:
         ts_dfs = []
         for f in ['GA_FY25_TimeSeries (1)', 'GA_FY26_TimeSeries']:
@@ -268,6 +276,7 @@ if current_page == "home":
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(10, 20, 10); scene.add(dirLight);
 
+        // CMU BRANDED PARTICLES
         const count = 35000; const pos = new Float32Array(count * 3); const colors = new Float32Array(count * 3);
         const cRed = new THREE.Color("{CMU_RED}"); const cGrey = new THREE.Color("{CMU_GREY}"); const cWhite = new THREE.Color("{WHITE}");
         for(let i=0; i<count; i++){{
@@ -282,6 +291,7 @@ if current_page == "home":
         const mat = new THREE.PointsMaterial({{size: 0.06, vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending }});
         scene.add(new THREE.Points(geo, mat));
 
+        // TEXT CORE
         const loader = new THREE.FontLoader();
         loader.load('https://unpkg.com/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {{
             const textGeo = new THREE.TextGeometry('CMU', {{ font: font, size: 6, height: 1.5, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.05 }});
@@ -331,12 +341,12 @@ elif current_page == "explorer":
     st.markdown("""
     <div class="console-card">
         <h3 style="margin-top: 0;">Integrity Rules Engine</h3>
-        <p style="margin-bottom: 0;">The Auditor scans raw files directly from the repository root to identify <strong>Orphan IDs</strong> and anomalies before they corrupt downstream models.</p>
+        <p style="margin-bottom: 0;">The Auditor scans raw files directly from your GitHub root directory to identify <strong>Orphan IDs</strong> and anomalies before they corrupt downstream models.</p>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("<h3 style='color: white;'>Interactive Schema Explorer</h3>", unsafe_allow_html=True)
-    f = st.selectbox("Select Target File", ALL_FILES)
+    f = st.selectbox("Select Target CSV", ALL_FILES)
     df = smart_load(f)
     
     if df is not None and not df.empty:
@@ -376,7 +386,7 @@ elif current_page == "explorer":
                 else: st.warning("UCM Campaign Index not found to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your root deployment directory but could not locate the file. Check GitHub casing and extensions.</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your root repository but could not load the file. Verify it was committed successfully.</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -398,7 +408,7 @@ elif current_page == "cleaner":
         st.success(f"✅ Master Hub Synthesized. {len(master_df)} campaigns merged dynamically from root files.")
         st.dataframe(master_df, use_container_width=True)
     else:
-        st.error("Alchemist failed to synthesize. Ensure the Index file is present in the repository.")
+        st.error("Alchemist failed to synthesize. Ensure 'UCM Campaign Index.csv' is committed to the repository root.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
