@@ -422,7 +422,7 @@ elif current_page == "explorer":
     df = smart_load(f)
     
     if df is not None and not df.empty:
-        t1, t2, t3, t4 = st.tabs(["📊 Data Viewer", "🔍 Data Profile", "📈 Descriptive Stats", "🚨 Orphan ID Scan"])
+        t1, t2, t3, t4, t5 = st.tabs(["📊 Data Viewer", "🔍 Data Profile", "📈 Descriptive Stats", "🚨 Orphan ID Scan", "⚠️ Structural Anomalies"])
         with t1:
             st.markdown("<div class='console-card'>", unsafe_allow_html=True)
             st.dataframe(df.head(100), use_container_width=True)
@@ -457,37 +457,37 @@ elif current_page == "explorer":
                     else: st.warning("No campaign key column found to cross-reference.")
                 else: st.warning("UCM Campaign Index not found to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
+        with t5:
+            st.markdown("<div class='console-card'>", unsafe_allow_html=True)
+            st.markdown("<h4>🚨 Structural Anomaly Scan</h4>", unsafe_allow_html=True)
+            st.markdown("<p>Automatically flags problematic exports from vendor platforms that break pipelines.</p>", unsafe_allow_html=True)
             
-    st.markdown("<hr><h3>🛡️ Traffic Drop-off & Fraud Detection</h3>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class='console-card'>
-        <p>This engine compares raw clicks from Google Ads/LinkedIn against actual website sessions in Google Analytics. A massive drop-off indicates budget wasted on bot traffic, accidental clicks, or severe landing page friction.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    if not master_df.empty:
-        fraud_df = master_df[(master_df['Total_Clicks'] > 100) & (master_df['Dropoff_Rate'] > 0.60)][['utm_clean', 'Total_Clicks', 'Total_Users', 'Dropoff_Rate', 'Total_Spend']].sort_values('Dropoff_Rate', ascending=False)
-        if not fraud_df.empty:
-            st.error(f"🚨 WARNING: Found {len(fraud_df)} active campaigns with over 60% traffic drop-off.")
-            st.dataframe(fraud_df.style.format({'Dropoff_Rate': '{:.1%}', 'Total_Spend': '${:,.2f}'}), use_container_width=True)
-        else:
-            st.success("✅ Ecosystem Healthy: No campaigns exhibit severe (>60%) click-to-session drop-off.")
-    else:
-        st.info("Master Hub not synthesized yet.")
-
-    st.markdown("<hr><h3>🌐 Global Ecosystem Cross-Reference (Omni-Analyzer)</h3>", unsafe_allow_html=True)
-    if st.button("Initialize Deep Scan"):
-        with st.spinner("Analyzing ecosystem entropy..."):
-            all_dfs = {}
-            for file in ALL_FILES:
-                loaded_df = smart_load(file)
-                if loaded_df is not None and not loaded_df.empty:
-                    all_dfs[file] = loaded_df
-            if len(all_dfs) > 1:
-                st.markdown("<div class='console-card'><h4>🔗 Automated Join Recommendations</h4>", unsafe_allow_html=True)
-                cross_ref_results = OmniAnalyzer.cross_reference_ecosystem(all_dfs)
-                st.dataframe(cross_ref_results, use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+            anomalies_found = 0
+            
+            # 1. Wide Format
+            day_cols = [c for c in df.columns if 'day' in str(c).lower() and any(char.isdigit() for char in str(c))]
+            if len(day_cols) > 5:
+                st.error("🚨 **Wide-Format TimeSeries Detected:** The timeline is stretched horizontally across columns instead of vertically in rows. *Alchemist Fix: Automatically melted via pandas.*")
+                anomalies_found += 1
+                
+            # 2. Total Rows
+            if any(df.astype(str).apply(lambda x: x.str.contains('Total: Campaigns', case=False, na=False).any())):
+                st.error("🚨 **Google Ads 'Total' Row Detected:** Contains string-based aggregation rows at the bottom that will double spend metrics. *Alchemist Fix: Automatically dropped.*")
+                anomalies_found += 1
+                
+            # 3. String Nulls
+            if any(df.astype(str).apply(lambda x: x.str.contains(' --', case=False, na=False).any())):
+                st.warning("⚠️ **String Nulls Detected:** Platform exported '--' instead of empty cells, forcing numeric columns to be read as strings. *Alchemist Fix: RegEx mapped to 0.0.*")
+                anomalies_found += 1
+                
+            # 4. Duplicate Headers (GA)
+            if len(df) > 1 and df.iloc[0].astype(str).str.contains('Total users|Engagement', case=False, na=False).any():
+                st.error("🚨 **Duplicate Sub-Headers Detected:** GA exported the column names into the first data row, breaking data types. *Alchemist Fix: Dynamically drops Row 0.*")
+                anomalies_found += 1
+                
+            if anomalies_found == 0:
+                st.success("✅ No severe structural anomalies detected in this file.")
+            st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -774,52 +774,39 @@ elif current_page == "dashboard":
 # ======================= AGENT 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
-    st.markdown("<h1>🕸️ Step 5: Knowledge Graph</h1>", unsafe_allow_html=True)
-    
+    st.markdown("<h1>🕸️ Ecosystem Relational Graph</h1>", unsafe_allow_html=True)
+
     st.markdown("""<div class="console-card">
-        <h3>Tripartite Relational Universe</h3>
-        <p>This physics-based network maps the successful relational joins generated by the Alchemist: <strong>Vendor → Campaign Category → Campaign Name</strong>. Nodes are draggable and scaled by actual Total User volume.</p>
+        <p>This physics-based network maps the successful relational joins generated by our pipeline: <strong>Vendor → Campaign Category → Campaign Name</strong>. Nodes are draggable.</p>
     </div>""", unsafe_allow_html=True)
-    
+
     if not master_df.empty:
-        # Using BLACK background to match the theme, with WHITE text for readability inside the graph
-        net = Network(height="750px", width="100%", bgcolor=BLACK, font_color=WHITE, select_menu=True)
-        net.add_node("CMU", size=60, color=CMU_RED, label="CMU Hub")
-        
+        net = Network(height="700px", width="100%", bgcolor=BLACK, font_color=WHITE)
+        net.add_node("CMU", size=50, color=CMU_RED, label="CMU Hub")
+
         for vend in master_df['Vendor'].unique():
-            if pd.isna(vend) or vend == "" or str(vend) == '0' or str(vend) == 'nan': continue
-            net.add_node(str(vend), size=35, color=CMU_GREY, label=str(vend))
-            net.add_edge("CMU", str(vend))
-            
-            vend_df = master_df[master_df['Vendor'] == vend]
-            
-            # Add Category Tier
-            for cat in vend_df['Category'].unique():
-                cat_node_id = f"{vend}_{cat}"
-                # Use a slightly lighter grey or distinct color for categories
-                net.add_node(cat_node_id, size=25, color="#888888", label=str(cat))
-                net.add_edge(str(vend), cat_node_id)
-                
-                # Add Campaign Tier
-                camps = vend_df[vend_df['Category'] == cat].sort_values('Total_Users', ascending=False).head(10)
-                for _, row in camps.iterrows():
-                    camp = str(row['utm_clean'])
-                    users = max(row.get('Total_Users', 0), 1)
-                    # Scale node size based on users
-                    n_size = min(max(np.sqrt(users) / 2, 10), 45)
-                    
-                    # Truncate long campaign names for visual clarity
-                    camp_label = camp[:30] + "..." if len(camp) > 30 else camp
-                    
-                    if camp and camp != "nan":
-                        net.add_node(camp, size=n_size, color=CMU_RED, label=camp_label, title=f"Campaign: {camp} | Users: {users:,.0f}")
-                        net.add_edge(cat_node_id, camp)
-        
+            if str(vend) not in ['0', 'nan', 'Unknown', 'Organic/Other']:
+                net.add_node(vend, size=35, color="#666666", label=vend)
+                net.add_edge("CMU", vend)
+
+                vend_df = master_df[master_df['Vendor'] == vend]
+                for cat in vend_df['Category'].unique():
+                    cat_node = f"{vend}_{cat}"
+                    net.add_node(cat_node, size=25, color="#888888", label=str(cat))
+                    net.add_edge(vend, cat_node)
+
+                    camps = vend_df[vend_df['Category'] == cat].sort_values('Total_Users', ascending=False).head(8)
+                    for _, r in camps.iterrows():
+                        camp_name = str(r['utm_clean'])
+                        camp_label = camp_name[:30] + "..." if len(camp_name) > 30 else camp_name
+                        if camp_name and camp_name != "nan":
+                            net.add_node(camp_name, size=15, color=CMU_RED, label=camp_label, title=f"Users: {r.get('Total_Users', 0):,.0f}")
+                            net.add_edge(cat_node, camp_name)
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
-                # Inject CSS fix to remove default white border
-                html_data = f.read().replace('<style type="text/css">', '<style type="text/css">\n #mynetwork {border: none; outline: none;}\n')
-                components.html(html_data, height=800)
+                html_code = f.read().replace('<style type="text/css">', '<style type="text/css">\n #mynetwork {border: none; outline: none;}\n')
+                components.html(html_code, height=750)
     else:
         st.error("No joined data available to render graph.")
