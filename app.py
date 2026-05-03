@@ -63,7 +63,7 @@ query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
 # ---------------------------------------------------------
-# 2. AGGRESSIVE OMNI-LOADER ENGINE
+# 2. ABSOLUTE PATH RESOLVER (STREAMLIT CLOUD FIX)
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -71,33 +71,48 @@ ALL_FILES = [
     "GA_FY25_UTM_Totals_Jul2024-Jun2025.csv", "GA_FY26_UTM_Totals_Jul-Dec2025.csv",
     "GAds_AudiencePerformance_by_Campaign_FY24-FY26.csv", "GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad.csv",
     "GAds_FY25_Totals_Jul2024-Jun2025.csv", "GAds_FY26_Totals_Jul-Dec2025.csv",
-    "LinkedIn_Ad_Performance_Feb2024_Dec2025.csv", "UCM_Campaign_Index.csv" # Updated to match your exact GitHub file
+    "LinkedIn_Ad_Performance_Feb2024_Dec2025.csv", "UCM Campaign Index.csv"
 ]
 
 def sanitize_filename(name):
-    """Strips all spaces, dashes, underscores, and lowers case for fuzzy matching."""
+    """Strips ALL non-alphanumeric characters. 'UCM Campaign Index.csv' becomes 'ucmcampaignindex'."""
     return re.sub(r'[^a-z0-9]', '', name.lower().replace('.csv', '').replace('.xlsx', ''))
 
-@st.cache_data(ttl=60) # Short TTL to force Streamlit to rescan directory if you re-upload
-def smart_load(target_name, skiprows=0):
+@st.cache_data(ttl=30) 
+def get_file_path(target_name):
     """
-    Fuzzy matches filenames across Root and Data directories.
+    Finds the absolute directory of app.py, lists all files, and does a pure alphanumeric match.
+    This guarantees discovery regardless of spaces, underscores, or Linux symlinks.
     """
     sanitized_target = sanitize_filename(target_name)
-    search_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__)), os.path.join(os.getcwd(), 'data')]
+    
+    # Absolute path to where this script is physically located on the server
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # We also check the current working directory just in case
+    search_dirs = [script_dir, os.getcwd()]
     
     for d in search_dirs:
-        if os.path.exists(d) and os.path.isdir(d):
-            for f in os.listdir(d):
-                if sanitize_filename(f) == sanitized_target or sanitize_filename(f).startswith(sanitized_target):
-                    path = os.path.join(d, f)
-                    try:
-                        if f.lower().endswith('.csv'):
-                            return pd.read_csv(path, skiprows=skiprows)
-                        elif f.lower().endswith(('.xls', '.xlsx')):
-                            return pd.read_excel(path, skiprows=skiprows)
-                    except Exception:
-                        pass
+        if os.path.exists(d):
+            try:
+                for f in os.listdir(d):
+                    if sanitize_filename(f) == sanitized_target or sanitize_filename(f).startswith(sanitized_target):
+                        return os.path.join(d, f)
+            except Exception:
+                pass
+    return None
+
+def smart_load(target_name, skiprows=0):
+    """Loads the file based on the absolute path."""
+    path = get_file_path(target_name)
+    if path:
+        try:
+            if path.lower().endswith('.csv'):
+                return pd.read_csv(path, skiprows=skiprows)
+            elif path.lower().endswith(('.xls', '.xlsx')):
+                return pd.read_excel(path, skiprows=skiprows)
+        except Exception:
+            pass
     return None
 
 def find_col(df, aliases):
@@ -115,18 +130,18 @@ def normalize_key(series):
 @st.cache_data
 def build_master_hub():
     try:
-        # Load Index safely using the updated explicit filename
-        idx = smart_load('UCM_Campaign_Index.csv')
+        # Load Index safely using the fuzzy alphanumeric match
+        idx = smart_load('ucmcampaignindex')
         if idx is not None and not idx.empty:
             utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID', 'Landing Page (UTM)'])
             idx['utm_clean'] = normalize_key(idx[utm_col]) if utm_col else ""
             if 'Category' not in idx.columns: idx['Category'] = "Uncategorized"
         else:
-            return pd.DataFrame()
+            return pd.DataFrame() # ALCHEMIST FAILS HERE IF INDEX IS NOT FOUND
 
         # GAds Pipeline
         g_dfs, v_dfs = [], []
-        for f in ['GAds_FY25_Totals_Jul2024-Jun2025', 'GAds_FY26_Totals_Jul-Dec2025', 'GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad']:
+        for f in ['gadsfy25totals', 'gadsfy26totals', 'gadsfy24fy26monthlyweeklyperformance']:
             df = smart_load(f)
             if df is not None and not df.empty:
                 g_key = find_col(df, ['Ad name', 'Campaign', 'Campaign Name'])
@@ -150,7 +165,7 @@ def build_master_hub():
 
         # LinkedIn Pipeline
         li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
-        li = smart_load('LinkedIn_Ad_Performance_Feb2024_Dec2025')
+        li = smart_load('linkedinadperformance')
         if li is not None and not li.empty:
             li_key = find_col(li, ['Campaign Name', 'Campaign'])
             if li_key:
@@ -161,7 +176,7 @@ def build_master_hub():
 
         # GA Metrics Pipeline
         ga_dfs = []
-        for f in ['GA_FY25_UTM_Totals_Jul2024-Jun2025', 'GA_FY26_UTM_Totals_Jul-Dec2025']:
+        for f in ['gafy25utmtotals', 'gafy26utmtotals']:
             _df = smart_load(f, skiprows=0) 
             if _df is not None and not _df.empty:
                 if 'Session campaign' not in _df.columns and len(_df) > 1:
@@ -201,7 +216,7 @@ def build_master_hub():
 def load_timeseries_data():
     try:
         ts_dfs = []
-        for f in ['GA_FY25_TimeSeries (1)', 'GA_FY26_TimeSeries']:
+        for f in ['gafy25timeseries', 'gafy26timeseries']:
             df = smart_load(f, skiprows=0)
             if df is not None and not df.empty:
                 if 'Date' not in df.columns and len(df) > 1:
@@ -331,7 +346,7 @@ elif current_page == "explorer":
     st.markdown("""
     <div class="console-card">
         <h3 style="margin-top: 0;">Integrity Rules Engine</h3>
-        <p style="margin-bottom: 0;">The Auditor uses fuzzy-matching to scan raw files directly from your GitHub root directory to identify <strong>Orphan IDs</strong> and anomalies before they corrupt downstream models.</p>
+        <p style="margin-bottom: 0;">The Auditor uses absolute path fuzzy-matching to scan raw files directly from your server root to identify <strong>Orphan IDs</strong> and anomalies.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -360,7 +375,7 @@ elif current_page == "explorer":
             if 'UCM_Campaign_Index' in f or 'UCM Campaign Index' in f:
                 st.info("Viewing the Master Index. No cross-reference possible.")
             else:
-                idx_df = smart_load('UCM_Campaign_Index.csv')
+                idx_df = smart_load('ucmcampaignindex')
                 if idx_df is not None and not idx_df.empty:
                     idx_keys = set(normalize_key(idx_df[find_col(idx_df, ['UTM campaign', 'Campaign_ID'])]).tolist())
                     t_key = find_col(df, ['Ad name', 'Campaign', 'Session campaign'])
@@ -373,10 +388,10 @@ elif current_page == "explorer":
                         else:
                             st.success("✅ Clean: All parsed IDs map correctly to the Master Index.")
                     else: st.warning("No campaign key column found to cross-reference.")
-                else: st.warning("UCM_Campaign_Index.csv not found to cross-reference.")
+                else: st.warning("UCM Campaign Index not found on the server to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your root repository but could not load the file. Streamlit cache may need a reboot.</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found on the server.</strong> We searched your absolute root repository but could not load the file. Streamlit cache may need a reboot.</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -395,10 +410,17 @@ elif current_page == "cleaner":
 
     st.markdown("<div class='console-card'>", unsafe_allow_html=True)
     if not master_df.empty:
-        st.success(f"✅ Master Hub Synthesized. {len(master_df)} campaigns merged dynamically from root files.")
+        st.success(f"✅ Master Hub Synthesized. {len(master_df)} campaigns merged dynamically from absolute root files.")
         st.dataframe(master_df, use_container_width=True)
     else:
-        st.error("Alchemist failed to synthesize. Please ensure 'UCM_Campaign_Index.csv' is committed to the repository root.")
+        # DIAGNOSTIC: Help the user understand exactly what failed
+        st.error("Alchemist failed to synthesize.")
+        st.markdown(f"""
+        **Diagnostic Check:**
+        * Did the Omni-Loader find the index? `{smart_load('ucmcampaignindex') is not None}`
+        * Is `app.py` in the same directory as the CSV files on GitHub?
+        * Force a reboot of your Streamlit app from the Streamlit Cloud dashboard to clear the cache.
+        """)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
