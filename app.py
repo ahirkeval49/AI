@@ -16,12 +16,12 @@ import re
 CMU_RED = "#C41230"
 CMU_GREY = "#6D6E71"
 WHITE = "#FFFFFF"
-BLACK = "#0f0f0f" # Softer dark background for readability
+BLACK = "#0f0f0f" 
 CARD_BG = "#1a1a1a"
 
-st.set_page_config(page_title="CMU Data Systems", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="CMU Command Center", layout="wide", initial_sidebar_state="collapsed")
 
-# Clean, readable Dark Mode CSS with CMU Red Accents
+# Clean Dark Mode CSS with CMU Red Accents & Custom Button Styling
 st.markdown(f"""
 <style>
     .stApp {{ background-color: {BLACK}; color: {WHITE}; }}
@@ -38,23 +38,40 @@ st.markdown(f"""
     div[data-testid="stMetricLabel"] {{ color: {CMU_GREY} !important; font-weight: 700; text-transform: uppercase; }}
     div[data-testid="stMetric"] {{ background-color: #222; padding: 15px; border-radius: 10px; border-left: 4px solid {CMU_RED}; }}
     
-    .nav-grid {{ display: flex; justify-content: center; gap: 15px; padding: 10px; margin-bottom: 20px; }}
-    .nav-card {{
-        background: #222; border: 1px solid #444; border-radius: 8px; padding: 10px 20px;
-        text-align: center; text-decoration: none; color: {WHITE} !important; font-weight: 700;
-        transition: 0.2s ease-in-out; text-transform: uppercase; letter-spacing: 1px; font-size: 12px;
+    /* Style for Native Streamlit Buttons to act as Nav Links */
+    div.stButton > button {{
+        background-color: #222; color: {WHITE}; border: 1px solid #444; border-radius: 8px;
+        font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-size: 13px; height: 50px;
+        transition: 0.2s ease-in-out;
     }}
-    .nav-card:hover {{ background: {CMU_RED}; border-color: {CMU_RED}; transform: translateY(-3px); }}
+    div.stButton > button:hover {{ background-color: {CMU_RED}; border-color: {CMU_RED}; color: {WHITE}; transform: translateY(-2px); }}
+    
     header {{ visibility: hidden; }}
 </style>
 """, unsafe_allow_html=True)
 
-query_params = st.query_params.to_dict()
-current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
+# Navigation State Management
+if "page" not in st.session_state:
+    st.session_state.page = "home"
+
+# Handle routing from buttons
+def navigate(page_name):
+    st.session_state.page = page_name
+
+current_page = st.session_state.page
 
 # ---------------------------------------------------------
 # DATA ENGINEERING: THE SPLIT-KEY PIPELINE
 # ---------------------------------------------------------
+ALL_FILES = [
+    "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
+    "GA_FY25_TimeSeries (1).csv", "GA_FY26_TimeSeries.csv",
+    "GA_FY25_UTM_Totals_Jul2024-Jun2025.csv", "GA_FY26_UTM_Totals_Jul-Dec2025.csv",
+    "GAds_AudiencePerformance_by_Campaign_FY24-FY26.csv", "GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad.csv",
+    "GAds_FY25_Totals_Jul2024-Jun2025.csv", "GAds_FY26_Totals_Jul-Dec2025.csv",
+    "LinkedIn_Ad_Performance_Feb2024_Dec2025.csv", "UCM Campaign Index.csv"
+]
+
 def sanitize_filename(name):
     return re.sub(r'[^a-z0-9]', '', name.lower().replace('.csv', '').replace('.xlsx', ''))
 
@@ -72,6 +89,13 @@ def smart_load(target_name, skiprows=0):
                     except Exception: pass
     return None
 
+def find_col(df, aliases):
+    if df is None or df.empty: return None
+    for alias in aliases:
+        for col in df.columns:
+            if alias.lower() in str(col).lower(): return col
+    return None
+
 def normalize_key(series):
     return series.astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True).replace('nan', '')
 
@@ -80,29 +104,34 @@ def clean_num(series):
 
 @st.cache_data
 def build_master_pipeline():
+    """The deeply corrected Split-Key relational join."""
     try:
-        # --- 1. LOAD INDEX ---
+        # --- 1. LOAD INDEX (THE ROSETTA STONE) ---
         idx_raw = smart_load('ucmcampaignindex')
         if idx_raw is None or idx_raw.empty: return pd.DataFrame()
         
         idx = pd.DataFrame()
-        idx['board_key'] = normalize_key(idx_raw.get('Monday_Board_Name', pd.Series()))
-        idx['plat_key'] = normalize_key(idx_raw.get('Campaign_ID', pd.Series()))
-        idx['ga_key'] = normalize_key(idx_raw.get('UTM campaign', pd.Series()))
-        idx['Category'] = idx_raw.get('Category', pd.Series()).fillna('Uncategorized')
-        idx['Vendor'] = idx_raw.get('Vendor', pd.Series()).fillna('Unknown')
-        idx['Display_Name'] = idx_raw.get('Monday_Board_Name', pd.Series())
+        # The key fix: Maps Platform files directly to Monday_Board_Name
+        idx['board_key'] = normalize_key(idx_raw.get('Monday_Board_Name', pd.Series(dtype=str)))
+        idx['ga_key'] = normalize_key(idx_raw.get('UTM campaign', pd.Series(dtype=str)))
+        idx['Category'] = idx_raw.get('Category', pd.Series(dtype=str)).fillna('Uncategorized')
+        idx['Vendor'] = idx_raw.get('Vendor', pd.Series(dtype=str)).fillna('Unknown')
+        idx['Display_Name'] = idx_raw.get('Monday_Board_Name', pd.Series(dtype=str))
         idx = idx.drop_duplicates(subset=['board_key']).dropna(subset=['board_key'])
 
-        # --- 2. LOAD MONDAY.COM (BUDGETS) ---
+        # --- 2. LOAD MONDAY.COM (BUDGETS & DATES) ---
         mon1 = smart_load('202425campaignmanagement')
         mon2 = smart_load('202526campaignmanagement')
         mon_raw = pd.concat([df for df in [mon1, mon2] if df is not None])
         if not mon_raw.empty:
             mon = pd.DataFrame()
-            mon['board_key'] = normalize_key(mon_raw.get('Name', pd.Series()))
-            mon['Budget'] = clean_num(mon_raw.get('Budget', pd.Series()))
-            mon['Run_Dates'] = mon_raw.get('Run Dates', pd.Series()).astype(str)
+            mon_name_col = find_col(mon_raw, ['name'])
+            mon_bud_col = find_col(mon_raw, ['budget'])
+            mon_run_col = find_col(mon_raw, ['run dates'])
+            
+            mon['board_key'] = normalize_key(mon_raw[mon_name_col]) if mon_name_col else ""
+            mon['Budget'] = clean_num(mon_raw[mon_bud_col]) if mon_bud_col else 0.0
+            mon['Run_Dates'] = mon_raw[mon_run_col].astype(str) if mon_run_col else ""
             mon = mon.groupby('board_key').first().reset_index()
             idx = pd.merge(idx, mon, on='board_key', how='left')
 
@@ -111,25 +140,35 @@ def build_master_pipeline():
         for f in ['gadsfy25totals', 'gadsfy26totals', 'gadsfy24fy26monthlyweeklyperformance']:
             g_df = smart_load(f)
             if g_df is not None and not g_df.empty:
-                camp_col = next((c for c in g_df.columns if 'campaign' in str(c).lower() or 'ad name' in str(c).lower()), None)
+                camp_col = find_col(g_df, ['campaign', 'ad name'])
                 if camp_col:
                     g_df = g_df[~g_df[camp_col].astype(str).str.contains('Total', case=False, na=False)]
                     ext = pd.DataFrame()
-                    ext['plat_key'] = normalize_key(g_df[camp_col])
-                    ext['Spend'] = clean_num(g_df.get('Cost', g_df.get('Spend', pd.Series(0))))
-                    ext['Clicks'] = clean_num(g_df.get('Clicks', pd.Series(0)))
+                    ext['board_key'] = normalize_key(g_df[camp_col])
+                    
+                    # Robust Spend Calculation (Fallback to Clicks * CPC if Cost is missing)
+                    cost_col = find_col(g_df, ['cost', 'spend'])
+                    clk_col = find_col(g_df, ['clicks'])
+                    cpc_col = find_col(g_df, ['avg. cpc', 'cpc'])
+                    
+                    if cost_col: ext['Spend'] = clean_num(g_df[cost_col])
+                    elif clk_col and cpc_col: ext['Spend'] = clean_num(g_df[clk_col]) * clean_num(g_df[cpc_col])
+                    else: ext['Spend'] = 0.0
+                        
+                    ext['Clicks'] = clean_num(g_df[clk_col]) if clk_col else 0.0
                     plat_dfs.append(ext)
+                    
         li_df = smart_load('linkedinadperformance')
         if li_df is not None and not li_df.empty:
-            camp_col = next((c for c in li_df.columns if 'campaign' in str(c).lower()), None)
+            camp_col = find_col(li_df, ['campaign name', 'campaign'])
             if camp_col:
                 ext = pd.DataFrame()
-                ext['plat_key'] = normalize_key(li_df[camp_col])
-                ext['Spend'] = clean_num(li_df.get('Total Spend', li_df.get('Spend', pd.Series(0))))
-                ext['Clicks'] = clean_num(li_df.get('Clicks', pd.Series(0)))
+                ext['board_key'] = normalize_key(li_df[camp_col])
+                ext['Spend'] = clean_num(li_df[find_col(li_df, ['total spend', 'spend', 'cost'])])
+                ext['Clicks'] = clean_num(li_df[find_col(li_df, ['clicks'])])
                 plat_dfs.append(ext)
                 
-        plat_agg = pd.concat(plat_dfs).groupby('plat_key').sum().reset_index() if plat_dfs else pd.DataFrame(columns=['plat_key', 'Spend', 'Clicks'])
+        plat_agg = pd.concat(plat_dfs).groupby('board_key').sum().reset_index() if plat_dfs else pd.DataFrame(columns=['board_key', 'Spend', 'Clicks'])
 
         # --- 4. LOAD IMPACT (GOOGLE ANALYTICS) ---
         ga_dfs = []
@@ -137,25 +176,25 @@ def build_master_pipeline():
             ga_raw = smart_load(f, skiprows=0)
             if ga_raw is not None and not ga_raw.empty:
                 if 'session campaign' not in str(ga_raw.columns).lower(): ga_raw.columns = ga_raw.iloc[0]; ga_raw = ga_raw[1:]
-                camp_col = next((c for c in ga_raw.columns if 'campaign' in str(c).lower()), None)
+                camp_col = find_col(ga_raw, ['session campaign', 'campaign'])
                 if camp_col:
                     ext = pd.DataFrame()
                     ext['ga_key'] = normalize_key(ga_raw[camp_col])
-                    ext['Users'] = clean_num(ga_raw.get('Total users', pd.Series(0)))
-                    ext['Eng_Rate'] = clean_num(ga_raw.get('Engagement rate', pd.Series(0)))
-                    ext['Duration'] = clean_num(ga_raw.get('Average session duration', pd.Series(0)))
+                    ext['Users'] = clean_num(ga_raw[find_col(ga_raw, ['total users', 'users'])])
+                    ext['Eng_Rate'] = clean_num(ga_raw[find_col(ga_raw, ['engagement rate'])])
+                    ext['Duration'] = clean_num(ga_raw[find_col(ga_raw, ['average session duration', 'duration'])])
                     ga_dfs.append(ext)
                     
         ga_agg = pd.concat(ga_dfs).groupby('ga_key').agg({'Users':'sum', 'Eng_Rate':'mean', 'Duration':'mean'}).reset_index() if ga_dfs else pd.DataFrame(columns=['ga_key', 'Users', 'Eng_Rate', 'Duration'])
 
         # --- 5. THE MASTER MERGE ---
-        master = pd.merge(idx, plat_agg, on='plat_key', how='outer')
+        master = pd.merge(idx, plat_agg, on='board_key', how='outer')
         master = pd.merge(master, ga_agg, on='ga_key', how='outer')
         
-        master['Display_Name'] = master['Display_Name'].fillna(master['plat_key']).fillna(master['ga_key']).replace('', 'Unknown Campaign')
+        # Cleanup final unified names
+        master['Display_Name'] = master['Display_Name'].fillna(master['board_key']).fillna(master['ga_key']).replace('', 'Unknown Campaign')
         master['Category'] = master['Category'].fillna('Uncategorized')
         master['Vendor'] = master['Vendor'].fillna('Platform/Organic')
-        
         master.fillna({'Spend':0, 'Clicks':0, 'Users':0, 'Eng_Rate':0, 'Duration':0, 'Budget':0}, inplace=True)
         
         # Calculate God-Tier KPIs
@@ -166,7 +205,9 @@ def build_master_pipeline():
         
         master = master[(master['Spend'] > 0) | (master['Users'] > 0)]
         return master
-    except Exception as e: return pd.DataFrame()
+    except Exception as e: 
+        st.error(f"Pipeline Error: {e}")
+        return pd.DataFrame()
 
 @st.cache_data
 def load_timeseries():
@@ -190,35 +231,26 @@ master_df = build_master_pipeline()
 ts_data = load_timeseries()
 
 # ---------------------------------------------------------
-# UI: NAVIGATION & HEADER
+# UI: NATIVE BUTTON NAVIGATION
 # ---------------------------------------------------------
-nav_html = """
-<div class="nav-grid">
-    <a href="?page=home" class="nav-card">🌌 Nexus</a>
-    <a href="?page=dashboard" class="nav-card">🖥️ Architect Dashboard</a>
-    <a href="?page=analysis" class="nav-card">🧪 Strategist Deep-Dive</a>
-    <a href="?page=graph" class="nav-card">🕸️ Knowledge Graph</a>
-</div>
-"""
+nav_cols = st.columns(5)
+if nav_cols[0].button("🌌 Nexus", use_container_width=True): navigate("home")
+if nav_cols[1].button("🕵️ Auditor", use_container_width=True): navigate("explorer")
+if nav_cols[2].button("🖥️ Dashboard", use_container_width=True): navigate("dashboard")
+if nav_cols[3].button("🧪 Strategist", use_container_width=True): navigate("analysis")
+if nav_cols[4].button("🕸️ Knowledge", use_container_width=True): navigate("graph")
+
+st.markdown("<hr style='border-color: #333; margin-top: 0px;'>", unsafe_allow_html=True)
 
 # ======================= HOME: 3D CMU GALAXY =======================
 if current_page == "home":
-    st.markdown("<style>.block-container { padding: 0; } header { visibility: hidden; }</style>", unsafe_allow_html=True)
-    st.markdown(nav_html, unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; font-size: 60px; margin-top: 50px;'>CMU COMMAND CENTER</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #888; letter-spacing: 2px;'>DETERMINISTIC SPLIT-KEY ENGINE</p>", unsafe_allow_html=True)
     
     three_js_galaxy = f"""
     <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <style>
-        body {{ margin: 0; background: {BLACK}; overflow: hidden; font-family: sans-serif; }}
-        .node-label {{
-            position: absolute; background: rgba(196,18,48,0.85); border: 2px solid {WHITE};
-            padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer;
-            transition: 0.3s; pointer-events: auto; text-decoration: none; color: {WHITE}; font-size: 11px;
-            box-shadow: 0 4px 15px rgba(196,18,48,0.4);
-        }}
-        .node-label:hover {{ transform: scale(1.1); background: {WHITE}; color: {CMU_RED}; }}
-    </style></head>
+    <style>body {{ margin: 0; background: {BLACK}; overflow: hidden; }}</style></head>
     <body><script>
         const scene = new THREE.Scene(); scene.background = new THREE.Color("{BLACK}");
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -226,7 +258,6 @@ if current_page == "home":
         renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement);
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.autoRotate = true; controls.autoRotateSpeed = 0.5; controls.enableDamping = true;
-
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(10, 20, 10); scene.add(dirLight);
 
@@ -253,44 +284,49 @@ if current_page == "home":
             scene.add(new THREE.Mesh(textGeo, textMat));
         }});
 
-        // Linking nodes back to Streamlit pages
-        const agents = [
-            {{name: "ARCHITECT", url: "?page=dashboard", pos: [12, 6, 2]}},
-            {{name: "STRATEGIST", url: "?page=analysis", pos: [-12, -6, 5]}},
-            {{name: "KNOWLEDGE GRAPH", url: "?page=graph", pos: [6, -12, -5]}}
-        ];
-
-        agents.forEach(a => {{
-            const el = document.createElement('a'); el.className = 'node-label';
-            el.innerText = a.name; el.href = a.url; el.target = "_self";
-            document.body.appendChild(el); a.el = el;
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({{color: "{CMU_RED}", shininess: 100}}));
-            mesh.position.set(...a.pos); scene.add(mesh); a.mesh = mesh;
-        }});
-
         camera.position.z = 35;
-        function animate(){{
-            requestAnimationFrame(animate);
-            agents.forEach(a => {{
-                const vector = a.mesh.position.clone().project(camera);
-                a.el.style.left = (vector.x + 1) / 2 * window.innerWidth + 'px';
-                a.el.style.top = -(vector.y - 1) / 2 * window.innerHeight + 'px';
-            }});
-            controls.update(); renderer.render(scene, camera);
-        }}
+        function animate(){{ requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }}
         animate();
     </script></body></html>
     """
-    # Negative margin to pull the galaxy up and hide the empty space
-    st.markdown("<div style='margin-top: -50px;'></div>", unsafe_allow_html=True)
-    components.html(three_js_galaxy, height=850)
+    components.html(three_js_galaxy, height=800)
+
+# ======================= AGENT 1: FORENSIC AUDITOR =======================
+elif current_page == "explorer":
+    st.markdown("<h1>🕵️ Forensic Auditor & Planner</h1>", unsafe_allow_html=True)
+
+    st.markdown("<div class='console-card'><h3>📋 Planning Phase & Raw Files</h3>", unsafe_allow_html=True)
+    st.markdown("<p>Select a raw operational file below to review the explicit planning intent and budgets before they hit the execution pipeline.</p>", unsafe_allow_html=True)
+    f = st.selectbox("Select Target CSV", ALL_FILES)
+    df = smart_load(f)
+    
+    if df is not None and not df.empty:
+        t1, t2, t3, t4 = st.tabs(["📊 Raw Data View", "🔍 Column Profile", "📈 Data Stats", "⚠️ Structural Anomalies"])
+        with t1: st.dataframe(df.head(100), use_container_width=True)
+        with t2:
+            profile = pd.DataFrame({'Data Type': df.dtypes.astype(str), 'Null Count': df.isna().sum(), 'Unique Values': df.nunique()})
+            st.dataframe(profile, use_container_width=True)
+        with t3: st.dataframe(df.describe(include='all').T, use_container_width=True)
+        with t4:
+            anomalies_found = 0
+            day_cols = [c for c in df.columns if 'day' in str(c).lower() and any(char.isdigit() for char in str(c))]
+            if len(day_cols) > 5:
+                st.error("🚨 **Wide-Format TimeSeries Detected:** The timeline is stretched horizontally across columns. *Alchemist Fix: Automatically melted.*")
+                anomalies_found += 1
+            if any(df.astype(str).apply(lambda x: x.str.contains('Total: Campaigns', case=False, na=False).any())):
+                st.error("🚨 **Google Ads 'Total' Row Detected:** Contains string-based aggregation rows. *Alchemist Fix: Automatically dropped.*")
+                anomalies_found += 1
+            if any(df.astype(str).apply(lambda x: x.str.contains(' --', case=False, na=False).any())):
+                st.warning("⚠️ **String Nulls Detected:** Platform exported '--' instead of empty cells. *Alchemist Fix: RegEx mapped to 0.0.*")
+                anomalies_found += 1
+            if anomalies_found == 0:
+                st.success("✅ No severe structural anomalies detected in this file.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= ARCHITECT DASHBOARD =======================
 elif current_page == "dashboard":
-    st.markdown(nav_html, unsafe_allow_html=True)
     st.markdown("<h1>🖥️ Pipeline Dashboard</h1>", unsafe_allow_html=True)
     
-    # Intuitive Filters
     st.markdown("<div class='console-card'><h3>🎯 Quick Filters</h3>", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     if not master_df.empty:
@@ -299,12 +335,10 @@ elif current_page == "dashboard":
         with c1: sel_vend = st.multiselect("Filter by Platform/Vendor", vendors, default=vendors)
         with c2: sel_cat = st.multiselect("Filter by Department/Category", categories, default=categories)
         f_df = master_df[(master_df['Vendor'].isin(sel_vend)) & (master_df['Category'].isin(sel_cat))]
-    else:
-        f_df = pd.DataFrame()
+    else: f_df = pd.DataFrame()
     st.markdown("</div>", unsafe_allow_html=True)
 
     if not f_df.empty:
-        # Hero KPIs
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Ecosystem Spend", f"${f_df['Spend'].sum():,.0f}")
         m2.metric("Total Acquired Users", f"{f_df['Users'].sum():,.0f}")
@@ -313,45 +347,34 @@ elif current_page == "dashboard":
         avg_drop = (f_df['Clicks'].sum() - f_df['Users'].sum()) / f_df['Clicks'].sum() if f_df['Clicks'].sum() > 0 else 0
         m4.metric("Avg Pipeline Drop-off", f"{avg_drop:.1%}")
 
-        # ROW 1: Flight Risk & Time Series
         c_left, c_right = st.columns(2)
         with c_left:
             st.markdown("<div class='console-card'><h3>⏳ Flight Risk (Pacing vs Budget)</h3>", unsafe_allow_html=True)
             st.markdown("<p style='font-size:12px; color:#aaa;'>Data Source: UCM Index & Monday.com Boards</p>", unsafe_allow_html=True)
-            current_date = pd.to_datetime('2026-05-03') # Preset context date
+            current_date = pd.to_datetime('2026-05-03') 
             pacing = []
             for _, r in f_df.iterrows():
                 if r['Budget'] > 0 and pd.notna(r['Run_Dates']) and '-' in str(r['Run_Dates']):
                     try:
-                        start_str, end_str = str(r['Run_Dates']).split('-')
-                        d_start, d_end = pd.to_datetime(start_str.strip()), pd.to_datetime(end_str.strip())
+                        d_start, d_end = pd.to_datetime(str(r['Run_Dates']).split('-')[0].strip()), pd.to_datetime(str(r['Run_Dates']).split('-')[1].strip())
                         if d_start <= d_end:
                             pct_time = min(max((current_date - d_start).days / ((d_end - d_start).days + 1), 0), 1)
                             pct_spend = r['Spend'] / r['Budget']
-                            pacing.append({
-                                'Campaign': r['Display_Name'][:35] + '...',
-                                'Time Elapsed': pct_time,
-                                'Budget Spent': pct_spend,
-                                'Pacing Delta': pct_spend - pct_time
-                            })
+                            pacing.append({'Campaign': r['Display_Name'][:35] + '...', 'Time Elapsed': pct_time, 'Budget Spent': pct_spend, 'Pacing Delta': pct_spend - pct_time})
                     except: pass
             if pacing:
-                p_df = pd.DataFrame(pacing).sort_values('Pacing Delta')
-                st.dataframe(p_df.style.format({'Time Elapsed': '{:.1%}', 'Budget Spent': '{:.1%}', 'Pacing Delta': '{:+.1%}'}), use_container_width=True)
-            else: st.info("No active budgeted campaigns found for pacing analysis.")
+                st.dataframe(pd.DataFrame(pacing).sort_values('Pacing Delta').style.format({'Time Elapsed': '{:.1%}', 'Budget Spent': '{:.1%}', 'Pacing Delta': '{:+.1%}'}), use_container_width=True)
+            else: st.info("No active budgeted campaigns found.")
             st.markdown("</div>", unsafe_allow_html=True)
             
         with c_right:
             st.markdown("<div class='console-card'><h3>📈 Temporal Pulse (Users)</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size:12px; color:#aaa;'>Data Source: GA TimeSeries</p>", unsafe_allow_html=True)
             if not ts_data.empty:
                 fig_ts = px.line(ts_data, x='Day', y='Users', color_discrete_sequence=[CMU_RED])
                 fig_ts.update_layout(paper_bgcolor=CARD_BG, plot_bgcolor=CARD_BG, font_color=WHITE, xaxis=dict(gridcolor='#333'), yaxis=dict(gridcolor='#333'))
                 st.plotly_chart(fig_ts, use_container_width=True)
-            else: st.info("TimeSeries data unavailable.")
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # ROW 2: Sankey
         st.markdown("<div class='console-card'><h3>🌊 Traffic Attribution Waterfall</h3>", unsafe_allow_html=True)
         top = f_df[f_df['Users'] > 0].sort_values('Users', ascending=False).head(15)
         if not top.empty:
@@ -362,16 +385,11 @@ elif current_page == "dashboard":
                 links.append({'source': n_map[r['Vendor']], 'target': n_map[r['Category']], 'value': r['Users']})
                 links.append({'source': n_map[r['Category']], 'target': n_map[r['Display_Name']], 'value': r['Users']})
             l_df = pd.DataFrame(links).groupby(['source','target']).sum().reset_index()
-            fig_s = go.Figure(go.Sankey(
-                node=dict(label=nodes, color=CMU_RED, pad=15, thickness=20),
-                link=dict(source=l_df['source'], target=l_df['target'], value=l_df['value'], color="rgba(196,18,48,0.4)")
-            ))
+            fig_s = go.Figure(go.Sankey(node=dict(label=nodes, color=CMU_RED, pad=15, thickness=20), link=dict(source=l_df['source'], target=l_df['target'], value=l_df['value'], color="rgba(196,18,48,0.4)")))
             fig_s.update_layout(paper_bgcolor=CARD_BG, font_color=WHITE, height=450)
             st.plotly_chart(fig_s, use_container_width=True)
-        else: st.info("Insufficient user volume for waterfall.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # ROW 3: Attention Grid & Department Bar
         col_x, col_y = st.columns(2)
         with col_x:
             st.markdown("<div class='console-card'><h3>🌍 Attention Economy Grid</h3>", unsafe_allow_html=True)
@@ -385,18 +403,15 @@ elif current_page == "dashboard":
             fig_bar.update_layout(paper_bgcolor=CARD_BG, plot_bgcolor=CARD_BG, font_color=WHITE, xaxis=dict(gridcolor='#333'), yaxis=dict(gridcolor='#333'))
             st.plotly_chart(fig_bar, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.error("Dashboard offline. Waiting for valid data files.")
+    else: st.error("Dashboard offline. Waiting for valid data files.")
 
 # ======================= STRATEGIST DEEP-DIVE =======================
 elif current_page == "analysis":
-    st.markdown(nav_html, unsafe_allow_html=True)
     st.markdown("<h1>🧪 Quantitative Strategist</h1>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("<div class='console-card'><h3>📉 Diminishing Returns (Ad Fatigue)</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size:12px; color:#aaa;'>Data Source: Master Joined Pipeline (Spend vs GA Users)</p>", unsafe_allow_html=True)
+        st.markdown("<div class='console-card'><h3>📉 Ad Fatigue (Diminishing Returns)</h3>", unsafe_allow_html=True)
         reg_df = master_df[(master_df['Spend'] > 0) & (master_df['Users'] > 0)]
         if len(reg_df) > 5:
             p = np.polyfit(reg_df['Spend'], reg_df['Users'], 2)
@@ -411,57 +426,16 @@ elif current_page == "analysis":
         st.markdown("</div>", unsafe_allow_html=True)
         
     with c2:
-        st.markdown("<div class='console-card'><h3>🏆 True Quality: Cost Per Quality Minute</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size:12px; color:#aaa;'>Data Source: Master Joined Pipeline (Spend / Total Engaged Minutes)</p>", unsafe_allow_html=True)
+        st.markdown("<div class='console-card'><h3>🏆 True Quality: Lowest CPQM</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size:12px; color:#aaa;'>Cost Per Quality Minute (Spend / Engaged Minutes)</p>", unsafe_allow_html=True)
         cpqm_df = master_df[master_df['CPQM'] > 0].sort_values('CPQM').head(8)
         if not cpqm_df.empty:
             st.dataframe(cpqm_df[['Display_Name', 'Vendor', 'CPQM', 'Spend', 'Users']].style.format({'CPQM': '${:.2f}', 'Spend': '${:,.0f}'}), use_container_width=True)
         else: st.info("Not enough duration data to model CPQM.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # NEW: LEXICAL & FORMAT ANALYSIS
-    col_x, col_y = st.columns(2)
-    with col_x:
-        st.markdown("<div class='console-card'><h3>🧠 Lexical Resonance (Copywriting)</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size:12px; color:#aaa;'>Deterministic word extraction from Headline 1 vs CTR</p>", unsafe_allow_html=True)
-        def find_col_local(df, aliases):
-            if df is None or df.empty: return None
-            for alias in aliases:
-                for col in df.columns:
-                    if alias.lower() in str(col).lower(): return col
-            return None
-            
-        ads_df = smart_load('gadsfy24fy26monthlyweeklyperformance')
-        if ads_df is not None and 'Headline 1' in ads_df.columns:
-            ads_df['Clicks'] = clean_num(ads_df.get('Clicks', pd.Series(0)))
-            ads_df['Impr.'] = clean_num(ads_df.get('Impr.', pd.Series(0)))
-            words_data = []
-            stopwords = {"the", "and", "to", "of", "a", "in", "for", "is", "on", "with", "at", "as", "by", "--", "cmu"}
-            for _, row in ads_df.dropna(subset=['Headline 1']).iterrows():
-                text = str(row['Headline 1']).lower()
-                words = set(re.findall(r'\b[a-z]{3,}\b', text)) - stopwords
-                for w in words: words_data.append({'Keyword': w.capitalize(), 'Clicks': row['Clicks'], 'Impr': row['Impr.']})
-            if words_data:
-                wd_df = pd.DataFrame(words_data).groupby('Keyword').sum().reset_index()
-                wd_df['CTR'] = wd_df['Clicks'] / wd_df['Impr']
-                wd_df = wd_df[wd_df['Impr'] > 5000].sort_values('CTR', ascending=False).head(8)
-                st.dataframe(wd_df[['Keyword', 'CTR', 'Clicks', 'Impr']].style.format({'CTR': '{:.2%}', 'Clicks': '{:,.0f}', 'Impr': '{:,.0f}'}), use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-    with col_y:
-        st.markdown("<div class='console-card'><h3>📊 Ad Format A/B Testing</h3>", unsafe_allow_html=True)
-        if ads_df is not None and 'Ad type' in ads_df.columns:
-            format_df = ads_df.groupby('Ad type').agg({'Clicks': 'sum', 'Impr.': 'sum'}).reset_index()
-            format_df = format_df[format_df['Impr.'] > 0]
-            format_df['CTR'] = format_df['Clicks'] / format_df['Impr.']
-            fig_fmt = px.bar(format_df.sort_values('CTR', ascending=False), x='Ad type', y='CTR', color_discrete_sequence=[CMU_RED])
-            fig_fmt.update_layout(paper_bgcolor=CARD_BG, plot_bgcolor=CARD_BG, font_color=WHITE, xaxis=dict(gridcolor='#333'), yaxis=dict(gridcolor='#333', tickformat='.1%'))
-            st.plotly_chart(fig_fmt, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
 # ======================= KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
-    st.markdown(nav_html, unsafe_allow_html=True)
     st.markdown("<h1>🕸️ Ecosystem Relational Graph</h1>", unsafe_allow_html=True)
     
     st.markdown("""<div class="console-card">
@@ -493,7 +467,6 @@ elif current_page == "graph":
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
-                # Inject a small CSS fix to remove the default white border from pyvis
                 html_code = f.read().replace('<style type="text/css">', '<style type="text/css">\n #mynetwork {border: none; outline: none;}\n')
                 components.html(html_code, height=750)
     else:
