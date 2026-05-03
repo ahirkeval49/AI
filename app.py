@@ -184,21 +184,32 @@ def build_master_pipeline():
 @st.cache_data
 def load_timeseries():
     """Unpivots Wide GA arrays into proper line-chart data."""
-    ts1 = smart_load('gafy25timeseries')
-    ts2 = smart_load('gafy26timeseries')
-    dfs = []
-    for df in [ts1, ts2]:
-        if df is not None and not df.empty:
-            if 'session campaign' not in str(df.columns).lower(): df.columns = df.iloc[0]; df = df[1:]
-            day_cols = [c for c in df.columns if 'day' in str(c).lower() and any(char.isdigit() for str_val in str(c))]
-            if day_cols:
-                m = df.melt(id_vars=[c for c in df.columns if c not in day_cols], value_vars=day_cols, var_name='D', value_name='u')
-                m['Day'] = m['D'].astype(str).str.extract(r'(\d+)').astype(float)
-                m['Users'] = clean_num(m['u'])
-                dfs.append(m[['Day', 'Users']])
-    if dfs:
-        agg = pd.concat(dfs).groupby('Day')['Users'].sum().reset_index().sort_values('Day')
-        return agg
+    try:
+        ts1 = smart_load('gafy25timeseries')
+        ts2 = smart_load('gafy26timeseries')
+        dfs = []
+        for df in [ts1, ts2]:
+            if df is not None and not df.empty:
+                # Drop duplicate header strings if present
+                if 'session campaign' not in str(df.columns).lower(): 
+                    df.columns = df.iloc[0]
+                    df = df[1:]
+                
+                # Corrected List Comprehension (changed str_val to char)
+                day_cols = [c for c in df.columns if 'day' in str(c).lower() and any(char.isdigit() for char in str(c))]
+                
+                if day_cols:
+                    m = df.melt(id_vars=[c for c in df.columns if c not in day_cols], value_vars=day_cols, var_name='D', value_name='u')
+                    m['Day'] = m['D'].astype(str).str.extract(r'(\d+)').astype(float)
+                    m['Users'] = clean_num(m['u'])
+                    dfs.append(m[['Day', 'Users']])
+        if dfs:
+            agg = pd.concat(dfs).groupby('Day')['Users'].sum().reset_index().sort_values('Day')
+            return agg
+    except Exception as e: 
+        st.error(f"TimeSeries Error: {e}")
+        pass
+    
     return pd.DataFrame()
 
 master_df = build_master_pipeline()
@@ -358,6 +369,14 @@ elif current_page == "analysis":
 
     st.markdown("<div class='console-card'><h3>👥 Audience Segment Efficiency</h3>", unsafe_allow_html=True)
     st.markdown("<p style='font-size:12px; color:#aaa;'>Data Source: Explicitly extracted from <code>GAds_AudiencePerformance_by_Campaign_FY24-FY26.csv</code></p>", unsafe_allow_html=True)
+    
+    def find_col(df, aliases):
+        if df is None or df.empty: return None
+        for alias in aliases:
+            for col in df.columns:
+                if alias.lower() in str(col).lower(): return col
+        return None
+        
     aud_raw = smart_load('gadsaudienceperformancebycampaignfy24fy26')
     if aud_raw is not None:
         seg_col = find_col(aud_raw, ['audience segment'])
