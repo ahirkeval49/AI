@@ -65,7 +65,7 @@ query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
 # ---------------------------------------------------------
-# 2. OMNI-LOADER & OMNI-ANALYZER ENGINES
+# OMNI-LOADER & ETL PIPELINE (Deterministic Logic)
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -102,35 +102,12 @@ class OmniAnalyzer:
             dtype = str(df[col].dtype)
             nulls = df[col].isna().sum()
             unique_pct = df[col].nunique() / len(df) if len(df) > 0 else 0
-            if pd.api.types.is_numeric_dtype(df[col]): semantic = "📊 Metric (Calculable)"
-            elif pd.api.types.is_datetime64_any_dtype(df[col]) or any(word in str(col).lower() for word in ['date', 'day', 'time']):
-                semantic = "⏰ Temporal (Time-Series)"
-            elif unique_pct > 0.4 and df[col].dtype == "object": semantic = "🔑 Potential Key (High Cardinality)"
-            elif unique_pct <= 0.4 and df[col].dtype == "object": semantic = "🏷️ Dimension (Categorical)"
-            else: semantic = "❓ Unclassified"
+            if pd.api.types.is_numeric_dtype(df[col]): semantic = "📊 Metric"
+            elif pd.api.types.is_datetime64_any_dtype(df[col]) or any(w in str(col).lower() for w in ['date', 'day']): semantic = "⏰ Temporal"
+            elif unique_pct > 0.4 and df[col].dtype == "object": semantic = "🔑 Key"
+            else: semantic = "🏷️ Dimension"
             profile.append({"Column": col, "Inferred Purpose": semantic, "Data Type": dtype, "Missing Values": nulls})
         return pd.DataFrame(profile)
-
-    @staticmethod
-    def cross_reference_ecosystem(df_dict):
-        links = []
-        files = list(df_dict.keys())
-        for f1, f2 in combinations(files, 2):
-            df1, df2 = df_dict[f1], df_dict[f2]
-            cols1 = df1.select_dtypes(include=['object']).columns
-            cols2 = df2.select_dtypes(include=['object']).columns
-            for c1 in cols1:
-                for c2 in cols2:
-                    set1 = set(df1[c1].dropna().astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True))
-                    set2 = set(df2[c2].dropna().astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True))
-                    if not set1 or not set2: continue
-                    intersection = len(set1.intersection(set2))
-                    smaller_set = min(len(set1), len(set2))
-                    overlap_score = intersection / smaller_set if smaller_set > 0 else 0
-                    if overlap_score > 0.20: 
-                        links.append({"Source File": f1, "Source Column": c1, "Target File": f2, "Target Column": c2, "Match Confidence": f"{overlap_score*100:.1f}%"})
-        result_df = pd.DataFrame(links)
-        return result_df.sort_values(by="Match Confidence", ascending=False) if not result_df.empty else pd.DataFrame()
 
 def find_col(df, aliases):
     if df is None or df.empty: return None
@@ -145,12 +122,17 @@ def clean_num(series):
 def normalize_key(series):
     return series.astype(str).str.lower().str.replace(r'[^a-z0-9]', '', regex=True).replace('nan', '')
 
+# ---------------------------------------------------------
+# ALCHEMIST: THE MASTER CROSS-REFERENCE HUB
+# ---------------------------------------------------------
 @st.cache_data
 def build_master_hub():
-    """Agent 2 (Alchemist) Synthesis."""
+    """Agent 2 (Alchemist) Synthesis via UCM Campaign Index."""
     try:
+        # 1. Load UCM Campaign Index (The Ground Truth)
         idx = smart_load('ucmcampaignindex')
         if idx is not None and not idx.empty:
+            idx = idx.dropna(how='all')
             utm_col = find_col(idx, ['utm campaign', 'campaign_id', 'utm_combined_id'])
             idx['utm_clean'] = normalize_key(idx[utm_col]) if utm_col else ""
             cat_col = find_col(idx, ['tactic/category', 'category'])
@@ -163,12 +145,14 @@ def build_master_hub():
         else:
             idx = pd.DataFrame(columns=['utm_clean', 'Category', 'Budget', 'Run_Dates'])
 
+        # 2. Execution Layer (GAds)
         g_dfs, v_dfs = [], []
         for f in ['gadsfy25totals', 'gadsfy26totals', 'gadsfy24fy26monthlyweeklyperformance']:
             df = smart_load(f)
             if df is not None and not df.empty:
                 g_key = find_col(df, ['ad name', 'campaign'])
                 if g_key:
+                    df = df[~df[g_key].astype(str).str.contains('Total', case=False, na=False)] # Drop Anomaly Row
                     df['utm_clean'] = normalize_key(df[g_key])
                     cost_col = find_col(df, ['cost', 'spend'])
                     if cost_col: df['Cost'] = clean_num(df[cost_col])
@@ -197,6 +181,7 @@ def build_master_hub():
         ).reset_index() if g_dfs else pd.DataFrame(columns=['utm_clean', 'GAds_Spend', 'GAds_Clicks'])
         v_agg = pd.concat(v_dfs, ignore_index=True).groupby('utm_clean').mean().reset_index() if v_dfs else pd.DataFrame()
 
+        # 3. Execution Layer (LinkedIn)
         li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend', 'LI_Clicks'])
         li = smart_load('linkedinadperformance')
         if li is not None and not li.empty:
@@ -209,12 +194,13 @@ def build_master_hub():
                 li['LI_Clicks'] = clean_num(li[li_clk]) if li_clk else 0.0
                 li_agg = li.groupby('utm_clean').agg(LI_Spend=('LI_Spend', 'sum'), LI_Clicks=('LI_Clicks', 'sum')).reset_index()
 
+        # 4. Impact Layer (Google Analytics)
         ga_dfs = []
         for f in ['gafy25utmtotals', 'gafy26utmtotals']:
             _df = smart_load(f, skiprows=0) 
             if _df is not None and not _df.empty:
                 if 'session campaign' not in str(_df.columns).lower() and len(_df) > 1:
-                    _df.columns = [str(c) for c in _df.iloc[0]] 
+                    _df.columns = [str(c) for c in _df.iloc[0]] # Drop duplicate headers
                     _df = _df[1:]
                     
                 ga_key = find_col(_df, ['session campaign', 'campaign'])
@@ -231,11 +217,12 @@ def build_master_hub():
                     
         ga_agg = pd.concat(ga_dfs, ignore_index=True).groupby('utm_clean').agg(Total_Users=('Total_Users', 'sum'), Engagement_Rate=('Engagement_Rate', 'mean'), Session_Duration=('Session_Duration', 'mean')).reset_index() if ga_dfs else pd.DataFrame(columns=['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration'])
 
+        # 5. Master Join
         hub = pd.merge(ga_agg, g_agg, on='utm_clean', how='outer')
         hub = pd.merge(hub, li_agg, on='utm_clean', how='outer')
         if not v_agg.empty: hub = pd.merge(hub, v_agg, on='utm_clean', how='left')
         
-        hub = pd.merge(hub, idx, on='utm_clean', how='left')
+        hub = pd.merge(hub, idx, on='utm_clean', how='left') # Join with the newly restored Index
         hub['utm_clean'].replace('', np.nan, inplace=True)
         hub = hub.dropna(subset=['utm_clean'])
         
@@ -261,7 +248,6 @@ def load_timeseries_data():
         ts_dfs = []
         search_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__)), os.path.join(os.getcwd(), 'data')]
         ts_files = []
-        
         for d in search_dirs:
             if os.path.exists(d):
                 for f in os.listdir(d):
@@ -275,12 +261,9 @@ def load_timeseries_data():
                     
                 if df is not None and not df.empty:
                     day_cols = [c for c in df.columns if 'day' in str(c).lower() and any(char.isdigit() for char in str(c))]
-                    
                     if day_cols:
-                        melted = df.melt(id_vars=[c for c in df.columns if c not in day_cols], 
-                                         value_vars=day_cols, 
-                                         var_name='Day_String', 
-                                         value_name='users')
+                        # Anomaly Fix: Unpivot Wide-Format Time Series
+                        melted = df.melt(id_vars=[c for c in df.columns if c not in day_cols], value_vars=day_cols, var_name='Day_String', value_name='users')
                         melted['day_num'] = melted['Day_String'].astype(str).str.extract(r'(\d+)').astype(float)
                         melted['users'] = clean_num(melted['users'])
                         ts_dfs.append(melted[['day_num', 'users']])
@@ -300,8 +283,7 @@ def load_timeseries_data():
             ts_agg['day'] = 'Day ' + ts_agg['day_num'].astype(int).astype(str)
             ts_agg['sessions'] = (ts_agg['users'] * 1.25).astype(int) 
             return ts_agg[['day', 'sessions', 'users']]
-    except Exception as e:
-        pass
+    except Exception: pass
     return pd.DataFrame()
 
 master_df = build_master_hub()
@@ -413,7 +395,7 @@ elif current_page == "explorer":
     st.markdown("""
     <div class="console-card">
         <h3 style="margin-top: 0;">Integrity Rules Engine</h3>
-        <p style="margin-bottom: 0;">The Auditor scans raw files directly from your repository root to identify Orphan IDs and anomalies before they corrupt downstream models.</p>
+        <p style="margin-bottom: 0;">The Auditor scans raw files directly from your repository root to identify anomalies, structural issues, and orphaned data.</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -422,7 +404,7 @@ elif current_page == "explorer":
     df = smart_load(f)
     
     if df is not None and not df.empty:
-        t1, t2, t3, t4 = st.tabs(["📊 Data Viewer", "🔍 Data Profile", "📈 Descriptive Stats", "🚨 Orphan ID Scan"])
+        t1, t2, t3, t4, t5 = st.tabs(["📊 Data Viewer", "🔍 Data Profile", "📈 Descriptive Stats", "🚨 Orphan ID Scan", "⚠️ Structural Anomalies"])
         with t1:
             st.markdown("<div class='console-card'>", unsafe_allow_html=True)
             st.dataframe(df.head(100), use_container_width=True)
@@ -457,37 +439,37 @@ elif current_page == "explorer":
                     else: st.warning("No campaign key column found to cross-reference.")
                 else: st.warning("UCM Campaign Index not found to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
+        with t5:
+            st.markdown("<div class='console-card'>", unsafe_allow_html=True)
+            st.markdown("<h4>🚨 Structural Anomaly Scan</h4>", unsafe_allow_html=True)
+            st.markdown("<p>Automatically flags problematic exports from vendor platforms that break pipelines.</p>", unsafe_allow_html=True)
             
-    st.markdown("<hr><h3>🛡️ Traffic Drop-off & Fraud Detection</h3>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class='console-card'>
-        <p>This engine compares raw clicks from Google Ads/LinkedIn against actual website sessions in Google Analytics. A massive drop-off indicates budget wasted on bot traffic, accidental clicks, or severe landing page friction.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    if not master_df.empty:
-        fraud_df = master_df[(master_df['Total_Clicks'] > 100) & (master_df['Dropoff_Rate'] > 0.60)][['utm_clean', 'Total_Clicks', 'Total_Users', 'Dropoff_Rate', 'Total_Spend']].sort_values('Dropoff_Rate', ascending=False)
-        if not fraud_df.empty:
-            st.error(f"🚨 WARNING: Found {len(fraud_df)} active campaigns with over 60% traffic drop-off.")
-            st.dataframe(fraud_df.style.format({'Dropoff_Rate': '{:.1%}', 'Total_Spend': '${:,.2f}'}), use_container_width=True)
-        else:
-            st.success("✅ Ecosystem Healthy: No campaigns exhibit severe (>60%) click-to-session drop-off.")
-    else:
-        st.info("Master Hub not synthesized yet.")
-
-    st.markdown("<hr><h3>🌐 Global Ecosystem Cross-Reference (Omni-Analyzer)</h3>", unsafe_allow_html=True)
-    if st.button("Initialize Deep Scan"):
-        with st.spinner("Analyzing ecosystem entropy..."):
-            all_dfs = {}
-            for file in ALL_FILES:
-                loaded_df = smart_load(file)
-                if loaded_df is not None and not loaded_df.empty:
-                    all_dfs[file] = loaded_df
-            if len(all_dfs) > 1:
-                st.markdown("<div class='console-card'><h4>🔗 Automated Join Recommendations</h4>", unsafe_allow_html=True)
-                cross_ref_results = OmniAnalyzer.cross_reference_ecosystem(all_dfs)
-                st.dataframe(cross_ref_results, use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+            anomalies_found = 0
+            
+            # 1. Wide Format
+            day_cols = [c for c in df.columns if 'day' in str(c).lower() and any(char.isdigit() for char in str(c))]
+            if len(day_cols) > 5:
+                st.error("🚨 **Wide-Format TimeSeries Detected:** The timeline is stretched horizontally across columns instead of vertically in rows. *Alchemist Fix: Automatically melted via pandas.*")
+                anomalies_found += 1
+                
+            # 2. Total Rows
+            if any(df.astype(str).apply(lambda x: x.str.contains('Total: Campaigns', case=False, na=False).any())):
+                st.error("🚨 **Google Ads 'Total' Row Detected:** Contains string-based aggregation rows at the bottom that will double spend metrics. *Alchemist Fix: Automatically dropped.*")
+                anomalies_found += 1
+                
+            # 3. String Nulls
+            if any(df.astype(str).apply(lambda x: x.str.contains(' --', case=False, na=False).any())):
+                st.warning("⚠️ **String Nulls Detected:** Platform exported '--' instead of empty cells, forcing numeric columns to be read as strings. *Alchemist Fix: RegEx mapped to 0.0.*")
+                anomalies_found += 1
+                
+            # 4. Duplicate Headers (GA)
+            if len(df) > 1 and df.iloc[0].astype(str).str.contains('Total users|Engagement', case=False, na=False).any():
+                st.error("🚨 **Duplicate Sub-Headers Detected:** GA exported the column names into the first data row, breaking data types. *Alchemist Fix: Dynamically drops Row 0.*")
+                anomalies_found += 1
+                
+            if anomalies_found == 0:
+                st.success("✅ No severe structural anomalies detected in this file.")
+            st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -498,8 +480,9 @@ elif current_page == "cleaner":
     <div class="console-card">
         <h3 style="margin-top: 0;">The Synthesis Engine (Outer Join Override)</h3>
         <p style="margin-bottom: 0;">
-        <strong>1. God-Mode Merge:</strong> Executing an OUTER JOIN. Even if campaigns from Google/LinkedIn do NOT match the Index, they are retained and tagged as "Orphaned" so no data is dropped.<br>
-        <strong>2. Normalization:</strong> Strips special characters and unifies casing to create a flawless <code>utm_clean</code> primary key for SQL-style merges.
+        <strong>1. Master Spine Integration:</strong> Uses `UCM Campaign Index.csv` as the verified ground truth.<br>
+        <strong>2. God-Mode Merge:</strong> Executing an OUTER JOIN. Even if campaigns from Google/LinkedIn do NOT match the Index, they are retained and tagged as "Orphaned" so no data is dropped.<br>
+        <strong>3. Normalization:</strong> Strips special characters and unifies casing to create a flawless <code>utm_clean</code> primary key for SQL-style merges.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -507,7 +490,7 @@ elif current_page == "cleaner":
     st.markdown("<div class='console-card'>", unsafe_allow_html=True)
     if not master_df.empty:
         total_spend = master_df['Total_Spend'].sum()
-        st.success(f"✅ Master Hub Synthesized using Outer Join. {len(master_df)} campaigns merged. ${total_spend:,.2f} Total Spend recovered.")
+        st.success(f"✅ Master Hub Synthesized mapping execution to the UCM Index. {len(master_df)} campaigns merged. ${total_spend:,.2f} Total Spend recovered.")
         st.dataframe(master_df, use_container_width=True)
     else:
         st.error("Alchemist failed to synthesize. Please ensure raw CSVs are present in the repository.")
@@ -532,13 +515,13 @@ elif current_page == "analysis":
             net_lift = users_gained - users_lost
             
             st.success(f"**Recommendation:** Reallocate **${realloc_amount:,.0f}** from `{worst_camp['utm_clean']}` to `{best_camp['utm_clean']}`.")
-            st.info(f"📈 **Projected Impact:** This move yields a net gain of **+{int(net_lift):,}** users to the university website without increasing the total fiscal budget.")
+            st.info(f"📈 **Projected Impact:** This move yields a net deterministic gain of **+{int(net_lift):,}** users to the university website at zero extra cost.")
         else:
             st.warning("Insufficient active campaigns to generate a budget reallocation recommendation.")
         st.markdown("</div>", unsafe_allow_html=True)
 
         # ---------------------------------------------------------
-        # PURE DATA REPLACEMENT: AUDIENCE SEGMENT EFFICIENCY
+        # PURE DATA: AUDIENCE SEGMENT EFFICIENCY
         # ---------------------------------------------------------
         st.markdown("<div class='console-card'><h3>👥 Audience Segment Efficiency Matrix</h3>", unsafe_allow_html=True)
         st.markdown("<p>Extracts strict deterministic CTR performance based on Audience Segment from the raw execution data.</p>", unsafe_allow_html=True)
@@ -553,9 +536,7 @@ elif current_page == "analysis":
                 aud_df[clk_col] = clean_num(aud_df[clk_col])
                 aud_df[imp_col] = clean_num(aud_df[imp_col])
                 
-                # Group purely by Data
                 aud_agg = aud_df.groupby(seg_col).agg({clk_col: 'sum', imp_col: 'sum'}).reset_index()
-                # Filter out low impression sets to ensure statistical significance
                 aud_agg = aud_agg[aud_agg[imp_col] > 5000].copy()
                 aud_agg['True_CTR'] = aud_agg[clk_col] / aud_agg[imp_col]
                 
