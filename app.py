@@ -301,27 +301,19 @@ if current_page == "home":
         ];
 
         agents.forEach(a => {{
-            // 1. CHANGED FROM <a> to <div> to bypass raw HTML link handling
-            const el = document.createElement('div'); 
+            // CHANGED TO AN <a> TAG WITH TARGET="_BLANK"
+            const el = document.createElement('a'); 
             el.className = 'node-label';
             el.innerText = a.name; 
             
-            // 2. STOP ORBIT CONTROLS FROM SWALLOWING THE CLICK
+            // PREVENT CLICK SWALLOWING
             el.addEventListener('mousedown', (e) => e.stopPropagation());
             el.addEventListener('touchstart', (e) => e.stopPropagation());
-            
-            // 3. JAVASCRIPT NAVIGATION TRICK TO BYPASS IFRAME RELATIVE URL BUG
-            el.addEventListener('click', (e) => {{
-                e.stopPropagation();
-                try {{
-                    // Update parent URL directly
-                    window.parent.location.search = "?page=" + a.page_target;
-                }} catch (err) {{
-                    // Fallback just in case of cross-origin blocks
-                    console.error("Parent navigation blocked, using fallback.");
-                    window.open("?page=" + a.page_target, "_parent");
-                }}
-            }});
+            el.addEventListener('click', (e) => e.stopPropagation());
+
+            // FORCE NEW WINDOW / TAB ON LEFT CLICK
+            el.href = "?page=" + a.page_target;
+            el.target = "_blank";
             
             document.body.appendChild(el); a.el = el;
             const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({{color: "{CMU_GREY}", shininess: 100}}));
