@@ -71,7 +71,7 @@ ALL_FILES = [
     "GA_FY25_UTM_Totals_Jul2024-Jun2025.csv", "GA_FY26_UTM_Totals_Jul-Dec2025.csv",
     "GAds_AudiencePerformance_by_Campaign_FY24-FY26.csv", "GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad.csv",
     "GAds_FY25_Totals_Jul2024-Jun2025.csv", "GAds_FY26_Totals_Jul-Dec2025.csv",
-    "LinkedIn_Ad_Performance_Feb2024_Dec2025.csv", "UCM Campaign Index.csv"
+    "LinkedIn_Ad_Performance_Feb2024_Dec2025.csv", "UCM_Campaign_Index.csv" # Updated to match your exact GitHub file
 ]
 
 def sanitize_filename(name):
@@ -115,8 +115,8 @@ def normalize_key(series):
 @st.cache_data
 def build_master_hub():
     try:
-        # Load Index safely using fuzzy match
-        idx = smart_load('ucmcampaignindex')
+        # Load Index safely using the updated explicit filename
+        idx = smart_load('UCM_Campaign_Index.csv')
         if idx is not None and not idx.empty:
             utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID', 'Landing Page (UTM)'])
             idx['utm_clean'] = normalize_key(idx[utm_col]) if utm_col else ""
@@ -126,7 +126,7 @@ def build_master_hub():
 
         # GAds Pipeline
         g_dfs, v_dfs = [], []
-        for f in ['gadsfy25totals', 'gadsfy26totals', 'gadsfy24fy26monthlyweeklyperformance']:
+        for f in ['GAds_FY25_Totals_Jul2024-Jun2025', 'GAds_FY26_Totals_Jul-Dec2025', 'GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad']:
             df = smart_load(f)
             if df is not None and not df.empty:
                 g_key = find_col(df, ['Ad name', 'Campaign', 'Campaign Name'])
@@ -150,7 +150,7 @@ def build_master_hub():
 
         # LinkedIn Pipeline
         li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
-        li = smart_load('linkedinadperformance')
+        li = smart_load('LinkedIn_Ad_Performance_Feb2024_Dec2025')
         if li is not None and not li.empty:
             li_key = find_col(li, ['Campaign Name', 'Campaign'])
             if li_key:
@@ -161,7 +161,7 @@ def build_master_hub():
 
         # GA Metrics Pipeline
         ga_dfs = []
-        for f in ['gafy25utmtotals', 'gafy26utmtotals']:
+        for f in ['GA_FY25_UTM_Totals_Jul2024-Jun2025', 'GA_FY26_UTM_Totals_Jul-Dec2025']:
             _df = smart_load(f, skiprows=0) 
             if _df is not None and not _df.empty:
                 if 'Session campaign' not in _df.columns and len(_df) > 1:
@@ -201,7 +201,7 @@ def build_master_hub():
 def load_timeseries_data():
     try:
         ts_dfs = []
-        for f in ['gafy25timeseries', 'gafy26timeseries']:
+        for f in ['GA_FY25_TimeSeries (1)', 'GA_FY26_TimeSeries']:
             df = smart_load(f, skiprows=0)
             if df is not None and not df.empty:
                 if 'Date' not in df.columns and len(df) > 1:
@@ -357,10 +357,10 @@ elif current_page == "explorer":
         with t4:
             st.markdown("<div class='console-card'>", unsafe_allow_html=True)
             st.markdown("<h4>Orphan ID Detection</h4>", unsafe_allow_html=True)
-            if 'UCM Campaign Index' in f:
+            if 'UCM_Campaign_Index' in f or 'UCM Campaign Index' in f:
                 st.info("Viewing the Master Index. No cross-reference possible.")
             else:
-                idx_df = smart_load('ucmcampaignindex')
+                idx_df = smart_load('UCM_Campaign_Index.csv')
                 if idx_df is not None and not idx_df.empty:
                     idx_keys = set(normalize_key(idx_df[find_col(idx_df, ['UTM campaign', 'Campaign_ID'])]).tolist())
                     t_key = find_col(df, ['Ad name', 'Campaign', 'Session campaign'])
@@ -373,7 +373,7 @@ elif current_page == "explorer":
                         else:
                             st.success("✅ Clean: All parsed IDs map correctly to the Master Index.")
                     else: st.warning("No campaign key column found to cross-reference.")
-                else: st.warning("UCM Campaign Index not found to cross-reference.")
+                else: st.warning("UCM_Campaign_Index.csv not found to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your root repository but could not load the file. Streamlit cache may need a reboot.</div>", unsafe_allow_html=True)
@@ -398,7 +398,7 @@ elif current_page == "cleaner":
         st.success(f"✅ Master Hub Synthesized. {len(master_df)} campaigns merged dynamically from root files.")
         st.dataframe(master_df, use_container_width=True)
     else:
-        st.error("Alchemist failed to synthesize. Please ensure 'UCM Campaign Index.csv' is committed to the repository root.")
+        st.error("Alchemist failed to synthesize. Please ensure 'UCM_Campaign_Index.csv' is committed to the repository root.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
