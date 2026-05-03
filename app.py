@@ -16,12 +16,12 @@ import re
 CMU_RED = "#C41230"
 CMU_GREY = "#6D6E71"
 WHITE = "#FFFFFF"
-BLACK = "#0f0f0f" 
+BLACK = "#0f0f0f"
 CARD_BG = "#1a1a1a"
 
 st.set_page_config(page_title="CMU Command Center", layout="wide", initial_sidebar_state="collapsed")
 
-# Clean Dark Mode CSS with CMU Red Accents & Custom Button Styling
+# Custom CSS for Zero-Latency React Tabs & Dark Mode
 st.markdown(f"""
 <style>
     .stApp {{ background-color: {BLACK}; color: {WHITE}; }}
@@ -38,27 +38,26 @@ st.markdown(f"""
     div[data-testid="stMetricLabel"] {{ color: {CMU_GREY} !important; font-weight: 700; text-transform: uppercase; }}
     div[data-testid="stMetric"] {{ background-color: #222; padding: 15px; border-radius: 10px; border-left: 4px solid {CMU_RED}; }}
     
-    /* Style for Native Streamlit Buttons to act as Nav Links */
-    div.stButton > button {{
-        background-color: #222; color: {WHITE}; border: 1px solid #444; border-radius: 8px;
-        font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-size: 13px; height: 50px;
-        transition: 0.2s ease-in-out;
+    /* ZERO-LATENCY NATIVE TAB OVERRIDE */
+    div[data-baseweb="tab-list"] {{
+        display: flex; justify-content: center; gap: 15px; margin-bottom: 20px;
+        background-color: transparent; border: none;
     }}
-    div.stButton > button:hover {{ background-color: {CMU_RED}; border-color: {CMU_RED}; color: {WHITE}; transform: translateY(-2px); }}
+    div[data-baseweb="tab"] {{
+        background-color: #222 !important; color: {WHITE} !important; border: 1px solid #444 !important; 
+        border-radius: 8px !important; padding: 10px 20px !important; height: auto !important;
+        font-weight: 700 !important; text-transform: uppercase !important; letter-spacing: 1px !important;
+        transition: 0.2s ease-in-out; margin: 0;
+    }}
+    div[data-baseweb="tab"]:hover {{ background-color: #333 !important; transform: translateY(-2px); }}
+    div[data-baseweb="tab"][aria-selected="true"] {{
+        background-color: {CMU_RED} !important; border-color: {CMU_RED} !important; color: {WHITE} !important;
+    }}
+    div[data-baseweb="tab-highlight"] {{ display: none; }}
     
     header {{ visibility: hidden; }}
 </style>
 """, unsafe_allow_html=True)
-
-# Navigation State Management
-if "page" not in st.session_state:
-    st.session_state.page = "home"
-
-# Handle routing from buttons
-def navigate(page_name):
-    st.session_state.page = page_name
-
-current_page = st.session_state.page
 
 # ---------------------------------------------------------
 # DATA ENGINEERING: THE SPLIT-KEY PIPELINE
@@ -75,7 +74,7 @@ ALL_FILES = [
 def sanitize_filename(name):
     return re.sub(r'[^a-z0-9]', '', name.lower().replace('.csv', '').replace('.xlsx', ''))
 
-@st.cache_data(ttl=60)
+@st.cache_data
 def smart_load(target_name, skiprows=0):
     sanitized_target = sanitize_filename(target_name)
     search_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__)), os.path.join(os.getcwd(), 'data')]
@@ -104,14 +103,12 @@ def clean_num(series):
 
 @st.cache_data
 def build_master_pipeline():
-    """The deeply corrected Split-Key relational join."""
     try:
-        # --- 1. LOAD INDEX (THE ROSETTA STONE) ---
+        # --- 1. LOAD INDEX ---
         idx_raw = smart_load('ucmcampaignindex')
         if idx_raw is None or idx_raw.empty: return pd.DataFrame()
         
         idx = pd.DataFrame()
-        # The key fix: Maps Platform files directly to Monday_Board_Name
         idx['board_key'] = normalize_key(idx_raw.get('Monday_Board_Name', pd.Series(dtype=str)))
         idx['ga_key'] = normalize_key(idx_raw.get('UTM campaign', pd.Series(dtype=str)))
         idx['Category'] = idx_raw.get('Category', pd.Series(dtype=str)).fillna('Uncategorized')
@@ -119,23 +116,22 @@ def build_master_pipeline():
         idx['Display_Name'] = idx_raw.get('Monday_Board_Name', pd.Series(dtype=str))
         idx = idx.drop_duplicates(subset=['board_key']).dropna(subset=['board_key'])
 
-        # --- 2. LOAD MONDAY.COM (BUDGETS & DATES) ---
+        # --- 2. LOAD MONDAY.COM (BUDGETS) ---
         mon1 = smart_load('202425campaignmanagement')
         mon2 = smart_load('202526campaignmanagement')
         mon_raw = pd.concat([df for df in [mon1, mon2] if df is not None])
         if not mon_raw.empty:
             mon = pd.DataFrame()
-            mon_name_col = find_col(mon_raw, ['name'])
-            mon_bud_col = find_col(mon_raw, ['budget'])
-            mon_run_col = find_col(mon_raw, ['run dates'])
-            
-            mon['board_key'] = normalize_key(mon_raw[mon_name_col]) if mon_name_col else ""
-            mon['Budget'] = clean_num(mon_raw[mon_bud_col]) if mon_bud_col else 0.0
-            mon['Run_Dates'] = mon_raw[mon_run_col].astype(str) if mon_run_col else ""
+            mon_name = find_col(mon_raw, ['name'])
+            mon_bud = find_col(mon_raw, ['budget'])
+            mon_run = find_col(mon_raw, ['run dates'])
+            mon['board_key'] = normalize_key(mon_raw[mon_name]) if mon_name else ""
+            mon['Budget'] = clean_num(mon_raw[mon_bud]) if mon_bud else 0.0
+            mon['Run_Dates'] = mon_raw[mon_run].astype(str) if mon_run else ""
             mon = mon.groupby('board_key').first().reset_index()
             idx = pd.merge(idx, mon, on='board_key', how='left')
 
-        # --- 3. LOAD PLATFORMS (GOOGLE + LINKEDIN) ---
+        # --- 3. LOAD PLATFORMS ---
         plat_dfs = []
         for f in ['gadsfy25totals', 'gadsfy26totals', 'gadsfy24fy26monthlyweeklyperformance']:
             g_df = smart_load(f)
@@ -146,7 +142,6 @@ def build_master_pipeline():
                     ext = pd.DataFrame()
                     ext['board_key'] = normalize_key(g_df[camp_col])
                     
-                    # Robust Spend Calculation (Fallback to Clicks * CPC if Cost is missing)
                     cost_col = find_col(g_df, ['cost', 'spend'])
                     clk_col = find_col(g_df, ['clicks'])
                     cpc_col = find_col(g_df, ['avg. cpc', 'cpc'])
@@ -170,7 +165,7 @@ def build_master_pipeline():
                 
         plat_agg = pd.concat(plat_dfs).groupby('board_key').sum().reset_index() if plat_dfs else pd.DataFrame(columns=['board_key', 'Spend', 'Clicks'])
 
-        # --- 4. LOAD IMPACT (GOOGLE ANALYTICS) ---
+        # --- 4. LOAD IMPACT (GA) ---
         ga_dfs = []
         for f in ['gafy25utmtotals', 'gafy26utmtotals']:
             ga_raw = smart_load(f, skiprows=0)
@@ -191,7 +186,6 @@ def build_master_pipeline():
         master = pd.merge(idx, plat_agg, on='board_key', how='outer')
         master = pd.merge(master, ga_agg, on='ga_key', how='outer')
         
-        # Cleanup final unified names
         master['Display_Name'] = master['Display_Name'].fillna(master['board_key']).fillna(master['ga_key']).replace('', 'Unknown Campaign')
         master['Category'] = master['Category'].fillna('Uncategorized')
         master['Vendor'] = master['Vendor'].fillna('Platform/Organic')
@@ -206,7 +200,6 @@ def build_master_pipeline():
         master = master[(master['Spend'] > 0) | (master['Users'] > 0)]
         return master
     except Exception as e: 
-        st.error(f"Pipeline Error: {e}")
         return pd.DataFrame()
 
 @st.cache_data
@@ -231,36 +224,34 @@ master_df = build_master_pipeline()
 ts_data = load_timeseries()
 
 # ---------------------------------------------------------
-# UI: NATIVE BUTTON NAVIGATION
+# UI: ZERO-LATENCY TABS
 # ---------------------------------------------------------
-nav_cols = st.columns(5)
-if nav_cols[0].button("🌌 Nexus", use_container_width=True): navigate("home")
-if nav_cols[1].button("🕵️ Auditor", use_container_width=True): navigate("explorer")
-if nav_cols[2].button("🖥️ Dashboard", use_container_width=True): navigate("dashboard")
-if nav_cols[3].button("🧪 Strategist", use_container_width=True): navigate("analysis")
-if nav_cols[4].button("🕸️ Knowledge", use_container_width=True): navigate("graph")
+tab_nexus, tab_auditor, tab_dash, tab_strat, tab_graph = st.tabs([
+    "🌌 Nexus", "🕵️ Auditor", "🖥️ Dashboard", "🧪 Strategist", "🕸️ Knowledge Graph"
+])
 
-st.markdown("<hr style='border-color: #333; margin-top: 0px;'>", unsafe_allow_html=True)
-
-# ======================= HOME: 3D CMU GALAXY =======================
-if current_page == "home":
-    st.markdown(f"<h1 style='text-align: center; font-size: 60px; margin-top: 50px;'>CMU COMMAND CENTER</h1>", unsafe_allow_html=True)
+# ======================= TAB 1: NEXUS (3D GALAXY) =======================
+with tab_nexus:
+    st.markdown(f"<h1 style='text-align: center; font-size: 50px; margin-top: 20px;'>CMU COMMAND CENTER</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #888; letter-spacing: 2px;'>DETERMINISTIC SPLIT-KEY ENGINE</p>", unsafe_allow_html=True)
     
+    # 3D Galaxy - Font Loader Removed, Replaced with Fail-Proof Orbiting Nodes
     three_js_galaxy = f"""
     <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <style>body {{ margin: 0; background: {BLACK}; overflow: hidden; }}</style></head>
+    <style>body {{ margin: 0; background: {BLACK}; overflow: hidden; font-family: sans-serif; }}</style></head>
     <body><script>
         const scene = new THREE.Scene(); scene.background = new THREE.Color("{BLACK}");
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({{antialias: true, alpha: true}});
         renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement);
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.autoRotate = true; controls.autoRotateSpeed = 0.5; controls.enableDamping = true;
+        controls.autoRotate = true; controls.autoRotateSpeed = 1.0; controls.enableDamping = true;
+
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(10, 20, 10); scene.add(dirLight);
 
+        // Background Stars
         const count = 35000; const pos = new Float32Array(count * 3); const colors = new Float32Array(count * 3);
         const cRed = new THREE.Color("{CMU_RED}"); const cGrey = new THREE.Color("{CMU_GREY}"); const cWhite = new THREE.Color("{WHITE}");
         for(let i=0; i<count; i++){{
@@ -275,39 +266,47 @@ if current_page == "home":
         const mat = new THREE.PointsMaterial({{size: 0.06, vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending }});
         scene.add(new THREE.Points(geo, mat));
 
-        const loader = new THREE.FontLoader();
-        loader.load('https://unpkg.com/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {{
-            const textGeo = new THREE.TextGeometry('CMU', {{ font: font, size: 6, height: 1.5, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.05 }});
-            textGeo.computeBoundingBox(); const centerOffset = -0.5 * (textGeo.boundingBox.max.x - textGeo.boundingBox.min.x);
-            textGeo.translate(centerOffset, -1.2, 0);
-            const textMat = new THREE.MeshPhongMaterial({{color: "{CMU_RED}", emissive: 0x400000, shininess: 100}});
-            scene.add(new THREE.Mesh(textGeo, textMat));
+        // The Central CMU Hub
+        const coreGeo = new THREE.SphereGeometry(2.5, 32, 32);
+        const coreMat = new THREE.MeshPhongMaterial({{color: "{CMU_RED}", emissive: 0x440000, shininess: 100}});
+        const core = new THREE.Mesh(coreGeo, coreMat);
+        scene.add(core);
+
+        // Orbiting System Nodes
+        const nodes = [
+            {{color: 0xffffff, pos: [8, 4, 0]}},
+            {{color: 0x666666, pos: [-7, -5, 4]}},
+            {{color: 0xffffff, pos: [0, 8, -6]}}
+        ];
+        nodes.forEach(n => {{
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.8, 32, 32), new THREE.MeshPhongMaterial({{color: n.color, shininess: 80}}));
+            mesh.position.set(...n.pos); scene.add(mesh);
         }});
 
-        camera.position.z = 35;
+        camera.position.z = 25;
         function animate(){{ requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }}
         animate();
     </script></body></html>
     """
-    components.html(three_js_galaxy, height=800)
+    components.html(three_js_galaxy, height=750)
 
-# ======================= AGENT 1: FORENSIC AUDITOR =======================
-elif current_page == "explorer":
+# ======================= TAB 2: AUDITOR =======================
+with tab_auditor:
     st.markdown("<h1>🕵️ Forensic Auditor & Planner</h1>", unsafe_allow_html=True)
-
     st.markdown("<div class='console-card'><h3>📋 Planning Phase & Raw Files</h3>", unsafe_allow_html=True)
     st.markdown("<p>Select a raw operational file below to review the explicit planning intent and budgets before they hit the execution pipeline.</p>", unsafe_allow_html=True)
-    f = st.selectbox("Select Target CSV", ALL_FILES)
+    
+    f = st.selectbox("Select Target CSV", ALL_FILES, key="auditor_select")
     df = smart_load(f)
     
     if df is not None and not df.empty:
-        t1, t2, t3, t4 = st.tabs(["📊 Raw Data View", "🔍 Column Profile", "📈 Data Stats", "⚠️ Structural Anomalies"])
-        with t1: st.dataframe(df.head(100), use_container_width=True)
-        with t2:
+        v1, v2, v3, v4 = st.tabs(["📊 Raw Data View", "🔍 Column Profile", "📈 Data Stats", "⚠️ Structural Anomalies"])
+        with v1: st.dataframe(df.head(100), use_container_width=True)
+        with v2:
             profile = pd.DataFrame({'Data Type': df.dtypes.astype(str), 'Null Count': df.isna().sum(), 'Unique Values': df.nunique()})
             st.dataframe(profile, use_container_width=True)
-        with t3: st.dataframe(df.describe(include='all').T, use_container_width=True)
-        with t4:
+        with v3: st.dataframe(df.describe(include='all').T, use_container_width=True)
+        with v4:
             anomalies_found = 0
             day_cols = [c for c in df.columns if 'day' in str(c).lower() and any(char.isdigit() for char in str(c))]
             if len(day_cols) > 5:
@@ -323,8 +322,8 @@ elif current_page == "explorer":
                 st.success("✅ No severe structural anomalies detected in this file.")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ======================= ARCHITECT DASHBOARD =======================
-elif current_page == "dashboard":
+# ======================= TAB 3: DASHBOARD =======================
+with tab_dash:
     st.markdown("<h1>🖥️ Pipeline Dashboard</h1>", unsafe_allow_html=True)
     
     st.markdown("<div class='console-card'><h3>🎯 Quick Filters</h3>", unsafe_allow_html=True)
@@ -350,7 +349,6 @@ elif current_page == "dashboard":
         c_left, c_right = st.columns(2)
         with c_left:
             st.markdown("<div class='console-card'><h3>⏳ Flight Risk (Pacing vs Budget)</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='font-size:12px; color:#aaa;'>Data Source: UCM Index & Monday.com Boards</p>", unsafe_allow_html=True)
             current_date = pd.to_datetime('2026-05-03') 
             pacing = []
             for _, r in f_df.iterrows():
@@ -405,8 +403,8 @@ elif current_page == "dashboard":
             st.markdown("</div>", unsafe_allow_html=True)
     else: st.error("Dashboard offline. Waiting for valid data files.")
 
-# ======================= STRATEGIST DEEP-DIVE =======================
-elif current_page == "analysis":
+# ======================= TAB 4: STRATEGIST =======================
+with tab_strat:
     st.markdown("<h1>🧪 Quantitative Strategist</h1>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
@@ -434,8 +432,39 @@ elif current_page == "analysis":
         else: st.info("Not enough duration data to model CPQM.")
         st.markdown("</div>", unsafe_allow_html=True)
 
-# ======================= KNOWLEDGE GRAPH =======================
-elif current_page == "graph":
+    col_x, col_y = st.columns(2)
+    with col_x:
+        st.markdown("<div class='console-card'><h3>🧠 Lexical Resonance (Copywriting)</h3>", unsafe_allow_html=True)
+        ads_df = smart_load('gadsfy24fy26monthlyweeklyperformance')
+        if ads_df is not None and 'Headline 1' in ads_df.columns:
+            ads_df['Clicks'] = clean_num(ads_df.get('Clicks', pd.Series(0)))
+            ads_df['Impr.'] = clean_num(ads_df.get('Impr.', pd.Series(0)))
+            words_data = []
+            stopwords = {"the", "and", "to", "of", "a", "in", "for", "is", "on", "with", "at", "as", "by", "--", "cmu"}
+            for _, row in ads_df.dropna(subset=['Headline 1']).iterrows():
+                text = str(row['Headline 1']).lower()
+                words = set(re.findall(r'\b[a-z]{3,}\b', text)) - stopwords
+                for w in words: words_data.append({'Keyword': w.capitalize(), 'Clicks': row['Clicks'], 'Impr': row['Impr.']})
+            if words_data:
+                wd_df = pd.DataFrame(words_data).groupby('Keyword').sum().reset_index()
+                wd_df['CTR'] = wd_df['Clicks'] / wd_df['Impr']
+                wd_df = wd_df[wd_df['Impr'] > 5000].sort_values('CTR', ascending=False).head(8)
+                st.dataframe(wd_df[['Keyword', 'CTR', 'Clicks', 'Impr']].style.format({'CTR': '{:.2%}', 'Clicks': '{:,.0f}', 'Impr': '{:,.0f}'}), use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+    with col_y:
+        st.markdown("<div class='console-card'><h3>📊 Ad Format A/B Testing</h3>", unsafe_allow_html=True)
+        if ads_df is not None and 'Ad type' in ads_df.columns:
+            format_df = ads_df.groupby('Ad type').agg({'Clicks': 'sum', 'Impr.': 'sum'}).reset_index()
+            format_df = format_df[format_df['Impr.'] > 0]
+            format_df['CTR'] = format_df['Clicks'] / format_df['Impr.']
+            fig_fmt = px.bar(format_df.sort_values('CTR', ascending=False), x='Ad type', y='CTR', color_discrete_sequence=[CMU_RED])
+            fig_fmt.update_layout(paper_bgcolor=CARD_BG, plot_bgcolor=CARD_BG, font_color=WHITE, xaxis=dict(gridcolor='#333'), yaxis=dict(gridcolor='#333', tickformat='.1%'))
+            st.plotly_chart(fig_fmt, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ======================= TAB 5: KNOWLEDGE GRAPH =======================
+with tab_graph:
     st.markdown("<h1>🕸️ Ecosystem Relational Graph</h1>", unsafe_allow_html=True)
     
     st.markdown("""<div class="console-card">
@@ -464,10 +493,11 @@ elif current_page == "graph":
                             net.add_node(camp_name, size=15, color=CMU_RED, label=camp_name)
                             net.add_edge(cat_node, camp_name)
         
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".html", dir=".") as tmp:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
                 html_code = f.read().replace('<style type="text/css">', '<style type="text/css">\n #mynetwork {border: none; outline: none;}\n')
                 components.html(html_code, height=750)
+            os.remove(tmp.name)
     else:
         st.error("No joined data available to render graph.")
