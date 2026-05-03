@@ -22,12 +22,12 @@ TEXT_DARK = "#050505"
 
 st.set_page_config(page_title="CMU Command Center", layout="wide", initial_sidebar_state="collapsed")
 
-# Clean CSS with White Cards & Custom Button Styling
+# Clean CSS with White Cards, Custom Button Styling & White Labels
 st.markdown(f"""
 <style>
     .stApp {{ background-color: {BLACK}; color: {WHITE}; }}
     h1, h2, h3, h4, h5, h6 {{ color: {CMU_RED} !important; font-weight: 800; font-family: 'Segoe UI', sans-serif; }}
-    p, span, label, li, td, th {{ font-family: 'Segoe UI', sans-serif; }}
+    p, span, li, td, th {{ font-family: 'Segoe UI', sans-serif; }}
     
     .console-card {{
         background-color: {CARD_BG}; border-radius: 12px; padding: 24px;
@@ -35,8 +35,14 @@ st.markdown(f"""
         border-top: 3px solid {CMU_RED};
     }}
     
+    /* Ensure text inside white cards is dark for readability */
     .console-card p, .console-card div, .console-card span, .console-card li {{ color: {TEXT_DARK} !important; }}
     .console-card h3, .console-card h4 {{ color: {CMU_RED} !important; }}
+    
+    /* Force Streamlit Multiselect Labels to be White */
+    label[data-baseweb="select"] {{ color: {WHITE} !important; }}
+    .stMultiSelect label {{ color: {WHITE} !important; font-weight: 600; letter-spacing: 0.5px; }}
+    
     div[data-baseweb="select"] * {{ color: {TEXT_DARK} !important; }}
     
     div[data-testid="stMetricValue"] {{ color: {TEXT_DARK} !important; font-weight: 900; }}
@@ -56,7 +62,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# ROUTING ENGINE (Preserves state from 3D Node Clicks)
+# ROUTING ENGINE
 # ---------------------------------------------------------
 if "page" in st.query_params:
     st.session_state.page = st.query_params["page"]
@@ -164,13 +170,11 @@ def build_master_pipeline():
                     
         li_df = smart_load('linkedinadperformance')
         if li_df is not None and not li_df.empty:
-            camp_col = find_col(li_df, ['campaign name', 'campaign'])
-            if camp_col:
-                ext = pd.DataFrame()
-                ext['board_key'] = normalize_key(li_df[camp_col])
-                ext['Spend'] = clean_num(li_df[find_col(li_df, ['total spend', 'spend', 'cost'])])
-                ext['Clicks'] = clean_num(li_df[find_col(li_df, ['clicks'])])
-                plat_dfs.append(ext)
+            ext = pd.DataFrame()
+            ext['board_key'] = normalize_key(li_df['Campaign Name'] if 'Campaign Name' in li_df.columns else li_df.iloc[:, 0])
+            ext['Spend'] = clean_num(li_df['Total Spend'] if 'Total Spend' in li_df.columns else pd.Series(0))
+            ext['Clicks'] = clean_num(li_df['Clicks'] if 'Clicks' in li_df.columns else pd.Series(0))
+            plat_dfs.append(ext)
                 
         plat_agg = pd.concat(plat_dfs).groupby('board_key').sum().reset_index() if plat_dfs else pd.DataFrame(columns=['board_key', 'Spend', 'Clicks'])
 
@@ -192,16 +196,12 @@ def build_master_pipeline():
 
         master = pd.merge(idx, plat_agg, on='board_key', how='outer')
         master = pd.merge(master, ga_agg, on='ga_key', how='outer')
-        
         master['Display_Name'] = master['Display_Name'].fillna(master['board_key']).fillna(master['ga_key']).replace('', 'Unknown Campaign')
         master['Category'] = master['Category'].fillna('Uncategorized')
         master['Vendor'] = master['Vendor'].fillna('Platform/Organic')
         master.fillna({'Spend':0, 'Clicks':0, 'Users':0, 'Eng_Rate':0, 'Duration':0, 'Budget':0}, inplace=True)
         
-        master['Dropoff_Rate'] = np.where(master['Clicks'] > 10, ((master['Clicks'] - master['Users']) / master['Clicks']).clip(0, 1), 0)
-        master['CPWU'] = np.where(master['Users'] > 0, master['Spend'] / master['Users'], 0)
-        master['Engaged_Mins'] = (master['Users'] * master['Duration']) / 60
-        master['CPQM'] = np.where(master['Engaged_Mins'] > 0, master['Spend'] / master['Engaged_Mins'], 0)
+        master['CPQM'] = np.where(master['Users'] > 0, master['Spend'] / ((master['Users'] * master['Duration']) / 60 + 0.1), 0)
         
         master = master[(master['Spend'] > 0) | (master['Users'] > 0)]
         return master
@@ -243,7 +243,9 @@ st.markdown("<hr style='border-color: #333; margin-top: 0px;'>", unsafe_allow_ht
 
 # ======================= HOME: 3D CMU GALAXY =======================
 if current_page == "home":
-    st.markdown(f"<h1 style='text-align: center; font-size: 60px; margin-top: 50px;'>CMU COMMAND CENTER</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; font-size: 60px; margin-top: 50px; margin-bottom: 0px;'>CMU COMMAND CENTER</h1>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; color: #888; letter-spacing: 2px;'>DETERMINISTIC SPLIT-KEY ENGINE</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; color: #555; font-size: 13px; font-style: italic; margin-top: -10px;'>Left-Click to Rotate • Right-Click to Pan • Scroll to Zoom</p>", unsafe_allow_html=True)
     
     three_js_galaxy = f"""
     <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -253,16 +255,15 @@ if current_page == "home":
         .node-label {{
             position: absolute; background: rgba(196,18,48,0.9); border: 2px solid {WHITE};
             padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer;
-            transition: 0.3s; pointer-events: auto; text-decoration: none; color: {WHITE}; font-size: 12px;
-            box-shadow: 0 4px 15px rgba(196,18,48,0.4); text-transform: uppercase;
-            z-index: 10000; 
+            transition: 0.3s; color: {WHITE}; text-decoration: none; font-size: 12px;
+            text-transform: uppercase; text-align: center;
         }}
         .node-label:hover {{ transform: scale(1.1); background: {WHITE}; color: {CMU_RED}; }}
     </style></head>
     <body><script>
         const scene = new THREE.Scene(); scene.background = new THREE.Color("{BLACK}");
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({{antialias: true, alpha: true}});
+        const renderer = new THREE.WebGLRenderer({{antialias: true}});
         renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement);
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.autoRotate = true; controls.autoRotateSpeed = 0.5; controls.enableDamping = true;
@@ -301,19 +302,18 @@ if current_page == "home":
         ];
 
         agents.forEach(a => {{
-            // CHANGED TO AN <a> TAG WITH TARGET="_BLANK"
             const el = document.createElement('a'); 
             el.className = 'node-label';
             el.innerText = a.name; 
             
-            // PREVENT CLICK SWALLOWING
+            // PURE HTML LINKING (Bypasses desktop JS security blocks)
+            el.href = "?page=" + a.page_target;
+            el.target = "_parent"; 
+            
+            // PREVENTS THE 3D CANVAS FROM SWALLOWING YOUR MOUSE CLICK
             el.addEventListener('mousedown', (e) => e.stopPropagation());
             el.addEventListener('touchstart', (e) => e.stopPropagation());
-            el.addEventListener('click', (e) => e.stopPropagation());
-
-            // FORCE NEW WINDOW / TAB ON LEFT CLICK
-            el.href = "?page=" + a.page_target;
-            el.target = "_blank";
+            el.addEventListener('pointerdown', (e) => e.stopPropagation());
             
             document.body.appendChild(el); a.el = el;
             const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({{color: "{CMU_GREY}", shininess: 100}}));
@@ -328,8 +328,7 @@ if current_page == "home":
                 a.el.style.top = -(vector.y - 1) / 2 * window.innerHeight + 'px';
             }});
             controls.update(); renderer.render(scene, camera); 
-        }}
-        animate();
+        }} animate();
     </script></body></html>
     """
     st.markdown("<div style='margin-top: -30px;'></div>", unsafe_allow_html=True)
@@ -543,3 +542,6 @@ elif current_page == "graph":
             with open(tmp.name, 'r', encoding='utf-8') as f:
                 html_code = f.read().replace('<style type="text/css">', '<style type="text/css">\n #mynetwork {border: none; outline: none;}\n')
                 components.html(html_code, height=750)
+            os.remove(tmp.name)
+    else:
+        st.error("No joined data available to render graph.")
