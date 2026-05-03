@@ -24,8 +24,6 @@ st.markdown(f"""
 <style>
     .stApp {{ background-color: {BLACK}; color: {WHITE}; }}
     .stSidebar {{ background-color: #111111; color: {WHITE}; }}
-    
-    /* Global Typography - CMU Branded */
     h1, h2, h3, h4, h5, h6 {{ color: {CMU_RED} !important; font-weight: 900; font-family: 'Segoe UI', sans-serif; letter-spacing: -0.5px; }}
     
     .console-card {{
@@ -45,7 +43,6 @@ st.markdown(f"""
     div[data-testid="stMetricLabel"] {{ color: {CMU_GREY} !important; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }}
     div[data-testid="stMetric"] {{ background-color: {WHITE}; padding: 15px; border-radius: 12px; border-left: 5px solid {CMU_RED}; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }}
     
-    /* Navigation Grid */
     .nav-grid {{ display: flex; justify-content: center; gap: 15px; padding: 10px; margin-bottom: 5px; z-index: 100; position: relative; }}
     .nav-card {{
         background: rgba(255, 255, 255, 0.05); border: 1px solid {CMU_GREY}; 
@@ -55,7 +52,6 @@ st.markdown(f"""
     }}
     .nav-card:hover {{ border-color: {CMU_RED}; transform: translateY(-5px); box-shadow: 0 8px 20px rgba(196,18,48,0.5); background: rgba(196, 18, 48, 0.15); }}
     .nav-title {{ font-size: 10px; font-weight: 900; color: {WHITE}; margin-top: 5px; letter-spacing: 1px; text-transform: uppercase; }}
-    
     header {{ visibility: hidden; }}
 </style>
 """, unsafe_allow_html=True)
@@ -67,30 +63,8 @@ query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
 # ---------------------------------------------------------
-# 2. OMNI-LOCATOR: DEPLOYMENT PATH RESOLUTION (ROOT UPGRADE)
+# 2. SMART LOADER ENGINE: SOLVES GITHUB PATHING & EXCEL ISSUES
 # ---------------------------------------------------------
-@st.cache_data
-def get_file_path(filename):
-    """
-    Scans the root directory, script directory, and a data folder to find the file.
-    Bypasses Linux case-sensitivity issues by matching files to lower().
-    """
-    target = filename.lower()
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    search_dirs = [
-        os.getcwd(),                    # 1. Root of the GitHub Repo
-        base_dir,                       # 2. Where the script lives
-        os.path.join(os.getcwd(), 'data'), # 3. Fallback Data folder
-        os.path.join(base_dir, 'data')
-    ]
-    
-    for d in search_dirs:
-        if os.path.exists(d) and os.path.isdir(d):
-            for f in os.listdir(d):
-                if f.lower() == target:
-                    return os.path.join(d, f)
-    return None
-
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
     "GA_FY25_TimeSeries (1).csv", "GA_FY26_TimeSeries.csv",
@@ -100,7 +74,32 @@ ALL_FILES = [
     "LinkedIn_Ad_Performance_Feb2024_Dec2025.csv", "UCM Campaign Index.csv"
 ]
 
+@st.cache_data
+def smart_load(filename, skiprows=0):
+    """
+    Searches both Root and /data folders. 
+    Automatically handles .csv or .xlsx regardless of what is requested.
+    """
+    target_name, _ = os.path.splitext(filename.lower())
+    search_dirs = [os.getcwd(), os.path.join(os.getcwd(), 'data')]
+    
+    for d in search_dirs:
+        if os.path.exists(d) and os.path.isdir(d):
+            for f in os.listdir(d):
+                f_name, f_ext = os.path.splitext(f.lower())
+                if f_name == target_name and f_ext in ['.csv', '.xlsx', '.xls']:
+                    path = os.path.join(d, f)
+                    try:
+                        if f_ext == '.csv':
+                            return pd.read_csv(path, skiprows=skiprows)
+                        else:
+                            return pd.read_excel(path, skiprows=skiprows)
+                    except Exception as e:
+                        return None
+    return None
+
 def find_col(df, aliases):
+    if df is None or df.empty: return None
     for alias in aliases:
         if alias in df.columns: return alias
     return None
@@ -113,31 +112,28 @@ def normalize_key(series):
 
 @st.cache_data
 def build_master_hub():
-    """Agent 2 (Alchemist) Synthesis extracting strictly from available files."""
     try:
-        # Load Index
-        idx = pd.DataFrame()
-        idx_path = get_file_path('UCM Campaign Index.csv')
-        if idx_path:
-            idx = pd.read_csv(idx_path)
+        # Load Index safely
+        idx = smart_load('UCM Campaign Index')
+        if idx is not None and not idx.empty:
             utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID', 'Landing Page (UTM)'])
             idx['utm_clean'] = normalize_key(idx[utm_col]) if utm_col else ""
             if 'Category' not in idx.columns: idx['Category'] = "Uncategorized"
+        else:
+            return pd.DataFrame()
 
-        # GAds Totals & Video Retention Metrics
+        # GAds Pipeline
         g_dfs, v_dfs = [], []
-        for f in ['GAds_FY25_Totals_Jul2024-Jun2025.csv', 'GAds_FY26_Totals_Jul-Dec2025.csv', 'GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad.csv']:
-            path = get_file_path(f)
-            if path:
-                df = pd.read_csv(path)
+        for f in ['GAds_FY25_Totals_Jul2024-Jun2025', 'GAds_FY26_Totals_Jul-Dec2025', 'GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad']:
+            df = smart_load(f)
+            if df is not None and not df.empty:
                 g_key = find_col(df, ['Ad name', 'Campaign', 'Campaign Name'])
                 if g_key:
                     df['utm_clean'] = normalize_key(df[g_key])
-                    # Cost extraction
                     if find_col(df, ['Cost', 'Spend']):
                         df['Cost'] = clean_num(df[find_col(df, ['Cost', 'Spend'])])
                         g_dfs.append(df[['utm_clean', 'Cost']])
-                    # Video Retention extraction (for Strategist & Architect)
+                    
                     v_cols = {'Video played to 25%': 'V25', 'Video played to 50%': 'V50', 'Video played to 75%': 'V75', 'Video played to 100%': 'V100'}
                     has_video = False
                     for k, v in v_cols.items():
@@ -152,9 +148,8 @@ def build_master_hub():
 
         # LinkedIn Pipeline
         li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
-        li_path = get_file_path('LinkedIn_Ad_Performance_Feb2024_Dec2025.csv')
-        if li_path:
-            li = pd.read_csv(li_path)
+        li = smart_load('LinkedIn_Ad_Performance_Feb2024_Dec2025')
+        if li is not None and not li.empty:
             li_key = find_col(li, ['Campaign Name', 'Campaign'])
             if li_key:
                 li['utm_clean'] = normalize_key(li[li_key])
@@ -164,10 +159,14 @@ def build_master_hub():
 
         # GA Metrics Pipeline
         ga_dfs = []
-        for f in ['GA_FY25_UTM_Totals_Jul2024-Jun2025.csv', 'GA_FY26_UTM_Totals_Jul-Dec2025.csv']:
-            path = get_file_path(f)
-            if path:
-                _df = pd.read_csv(path, skiprows=1) # Google Analytics typically drops the summary row
+        for f in ['GA_FY25_UTM_Totals_Jul2024-Jun2025', 'GA_FY26_UTM_Totals_Jul-Dec2025']:
+            _df = smart_load(f, skiprows=0) # Smart load checks headers
+            if _df is not None and not _df.empty:
+                # If GA exports have an extra summary row, standard drop
+                if 'Session campaign' not in _df.columns and len(_df) > 1:
+                    _df.columns = _df.iloc[0]
+                    _df = _df[1:]
+                    
                 ga_key = find_col(_df, ['Session campaign', 'Campaign'])
                 if ga_key:
                     _df['utm_clean'] = normalize_key(_df[ga_key])
@@ -180,40 +179,36 @@ def build_master_hub():
                     _df['Session_Duration'] = clean_num(_df[d_col]) if d_col else 0.0
                     ga_dfs.append(_df[['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration']])
                     
-        if ga_dfs:
-            ga_concat = pd.concat(ga_dfs)
-            ga_agg = ga_concat.groupby('utm_clean').agg(Total_Users=('Total_Users', 'sum'), Engagement_Rate=('Engagement_Rate', 'mean'), Session_Duration=('Session_Duration', 'mean')).reset_index()
-        else:
-            ga_agg = pd.DataFrame(columns=['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration'])
+        ga_agg = pd.concat(ga_dfs).groupby('utm_clean').agg(Total_Users=('Total_Users', 'sum'), Engagement_Rate=('Engagement_Rate', 'mean'), Session_Duration=('Session_Duration', 'mean')).reset_index() if ga_dfs else pd.DataFrame(columns=['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration'])
 
         # Master Synthesis Join
         hub = idx if not idx.empty else pd.DataFrame(columns=['utm_clean'])
         hub = pd.merge(hub, ga_agg, on='utm_clean', how='left')
         hub = pd.merge(hub, g_agg, on='utm_clean', how='left')
         hub = pd.merge(hub, li_agg, on='utm_clean', how='left')
-        if not v_agg.empty:
-            hub = pd.merge(hub, v_agg, on='utm_clean', how='left')
+        if not v_agg.empty: hub = pd.merge(hub, v_agg, on='utm_clean', how='left')
             
         hub.fillna(0.0, inplace=True)
         hub['Total_Spend'] = hub['GAds_Spend'] + hub['LI_Spend']
         hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0.0)
         
-        # Define Vendor mapping
-        hub['Vendor'] = np.where(hub['GAds_Spend'] > hub['LI_Spend'], 'Google Ads', 
-                                np.where(hub['LI_Spend'] > 0, 'LinkedIn', 'Organic/Other'))
+        hub['Vendor'] = np.where(hub['GAds_Spend'] > hub['LI_Spend'], 'Google Ads', np.where(hub['LI_Spend'] > 0, 'LinkedIn', 'Organic/Other'))
         return hub
     except Exception as e:
         return pd.DataFrame()
 
 @st.cache_data
 def load_timeseries_data():
-    """Extracts Real TimeSeries Data for Architect Heartbeat."""
     try:
         ts_dfs = []
-        for f in ['GA_FY25_TimeSeries (1).csv', 'GA_FY26_TimeSeries.csv']:
-            path = get_file_path(f)
-            if path:
-                ts_dfs.append(pd.read_csv(path, skiprows=1))
+        for f in ['GA_FY25_TimeSeries (1)', 'GA_FY26_TimeSeries']:
+            df = smart_load(f, skiprows=0)
+            if df is not None and not df.empty:
+                if 'Date' not in df.columns and len(df) > 1:
+                    df.columns = df.iloc[0]
+                    df = df[1:]
+                ts_dfs.append(df)
+                
         if ts_dfs:
             ts = pd.concat(ts_dfs, ignore_index=True)
             date_col = find_col(ts, ['Date', 'Day', 'Day Index'])
@@ -273,7 +268,6 @@ if current_page == "home":
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(10, 20, 10); scene.add(dirLight);
 
-        // CMU BRANDED PARTICLES
         const count = 35000; const pos = new Float32Array(count * 3); const colors = new Float32Array(count * 3);
         const cRed = new THREE.Color("{CMU_RED}"); const cGrey = new THREE.Color("{CMU_GREY}"); const cWhite = new THREE.Color("{WHITE}");
         for(let i=0; i<count; i++){{
@@ -288,7 +282,6 @@ if current_page == "home":
         const mat = new THREE.PointsMaterial({{size: 0.06, vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending }});
         scene.add(new THREE.Points(geo, mat));
 
-        // TEXT CORE (CMU)
         const loader = new THREE.FontLoader();
         loader.load('https://unpkg.com/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {{
             const textGeo = new THREE.TextGeometry('CMU', {{ font: font, size: 6, height: 1.5, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.05 }});
@@ -338,17 +331,15 @@ elif current_page == "explorer":
     st.markdown("""
     <div class="console-card">
         <h3 style="margin-top: 0;">Integrity Rules Engine</h3>
-        <p style="margin-bottom: 0;">The Auditor scans raw CSVs to identify <strong>Orphan IDs</strong> and missing financial values before they corrupt downstream models. All insights below are generated in real-time from the selected file.</p>
+        <p style="margin-bottom: 0;">The Auditor scans raw files directly from the repository root to identify <strong>Orphan IDs</strong> and anomalies before they corrupt downstream models.</p>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("<h3 style='color: white;'>Interactive Schema Explorer</h3>", unsafe_allow_html=True)
-    f = st.selectbox("Select Target CSV", ALL_FILES)
-    path = get_file_path(f)
-    if path:
-        # Check for summary rows typical in GA exports
-        df = pd.read_csv(path, skiprows=1 if 'UTM_Totals' in f or 'TimeSeries' in f else 0)
-        
+    f = st.selectbox("Select Target File", ALL_FILES)
+    df = smart_load(f)
+    
+    if df is not None and not df.empty:
         t1, t2, t3, t4 = st.tabs(["📊 Data Viewer", "🔍 Data Profile", "📈 Descriptive Stats", "🚨 Orphan ID Scan"])
         with t1:
             st.markdown("<div class='console-card'>", unsafe_allow_html=True)
@@ -366,12 +357,11 @@ elif current_page == "explorer":
         with t4:
             st.markdown("<div class='console-card'>", unsafe_allow_html=True)
             st.markdown("<h4>Orphan ID Detection</h4>", unsafe_allow_html=True)
-            if 'UCM Campaign Index.csv' in f:
+            if 'UCM Campaign Index' in f:
                 st.info("Viewing the Master Index. No cross-reference possible.")
             else:
-                idx_path = get_file_path('UCM Campaign Index.csv')
-                if idx_path:
-                    idx_df = pd.read_csv(idx_path)
+                idx_df = smart_load('UCM Campaign Index')
+                if idx_df is not None and not idx_df.empty:
                     idx_keys = set(normalize_key(idx_df[find_col(idx_df, ['UTM campaign', 'Campaign_ID'])]).tolist())
                     t_key = find_col(df, ['Ad name', 'Campaign', 'Session campaign'])
                     if t_key:
@@ -386,7 +376,7 @@ elif current_page == "explorer":
                 else: st.warning("UCM Campaign Index not found to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your deployment directory but could not locate the raw file.</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> We searched your root deployment directory but could not locate the file. Check GitHub casing and extensions.</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -405,10 +395,10 @@ elif current_page == "cleaner":
 
     st.markdown("<div class='console-card'>", unsafe_allow_html=True)
     if not master_df.empty:
-        st.success(f"✅ Master Hub Synthesized. {len(master_df)} campaigns merged.")
+        st.success(f"✅ Master Hub Synthesized. {len(master_df)} campaigns merged dynamically from root files.")
         st.dataframe(master_df, use_container_width=True)
     else:
-        st.error("Alchemist failed to synthesize. Please ensure Index and GA/GAds files are present in the repository.")
+        st.error("Alchemist failed to synthesize. Ensure the Index file is present in the repository.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
@@ -420,7 +410,7 @@ elif current_page == "analysis":
     <div class="console-card">
         <h3 style="margin-top: 0;">Data-Driven Predictive Modeling</h3>
         <p style="margin-bottom: 0;">
-        The Strategist operates strictly on the synthesized Master Hub. It models relationships (like Creative Resonance) to prove mathematical correlations between asset consumption and website engagement.
+        The Strategist models physical relationships (like Spend vs Acquisition and Video Resonance) to prove mathematical correlations.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -445,7 +435,7 @@ elif current_page == "analysis":
             c1.metric("Spend Correlation", "N/A")
             c2.metric("Significant Campaigns", len(valid_spend))
             c3.metric("Cost per Acquired User", "N/A")
-            st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient spend variance for regression.</strong></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient mapped spend variance for mathematical regression.</strong></div>", unsafe_allow_html=True)
 
         # Video Resonance Correlation
         if 'V100' in master_df.columns and 'Engagement_Rate' in master_df.columns:
@@ -457,8 +447,6 @@ elif current_page == "analysis":
                 fig_v.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", xaxis_title="Video Played 100% (%)", yaxis_title="Website Engagement Rate (%)")
                 st.plotly_chart(fig_v, use_container_width=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient Video Data for Resonance Modeling.</strong></div>", unsafe_allow_html=True)
     else:
         st.error("Master Hub is empty. Strategist offline.")
 
@@ -505,6 +493,7 @@ elif current_page == "dashboard":
             st.plotly_chart(fig_bar, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
             
+        # Real Retention Heatmap 
         st.markdown("<div class='console-card'><h3>🔥 Video Retention Heatmap (Real GAds Data)</h3>", unsafe_allow_html=True)
         v_cols = ['V25', 'V50', 'V75', 'V100']
         if all(c in f_df.columns for c in v_cols):
