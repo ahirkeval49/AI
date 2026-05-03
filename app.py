@@ -19,40 +19,47 @@ CMU_GREY = "#6D6E71"
 WHITE = "#FFFFFF"
 BLACK = "#050505"
 
-st.set_page_config(page_title="CMU Data Systems | Command Center", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="CMU Data Systems | Command Center", layout="wide", initial_sidebar_state="collapsed")
 
+# GLOBAL RED TEXT OVERRIDE
 st.markdown(f"""
 <style>
-    .stApp {{ background-color: {BLACK}; color: {WHITE}; }}
-    .stSidebar {{ background-color: #111111; color: {WHITE}; }}
-    h1, h2, h3, h4, h5, h6 {{ color: {CMU_RED} !important; font-weight: 900; font-family: 'Segoe UI', sans-serif; letter-spacing: -0.5px; }}
+    .stApp {{ background-color: {BLACK}; }}
+    .stSidebar {{ background-color: #111111; }}
     
+    /* FORCE ALL TEXT TO BE RED */
+    html, body, [class*="st-"], h1, h2, h3, h4, h5, h6, p, span, div, label, li, strong, a, th, td {{
+        color: {CMU_RED} !important;
+        font-family: 'Segoe UI', sans-serif;
+    }}
+    
+    h1, h2, h3, h4, h5, h6 {{ font-weight: 900; letter-spacing: -0.5px; }}
+    
+    /* Console Cards (White background so the red text is readable) */
     .console-card {{
         background-color: {WHITE};
         border-radius: 12px;
         padding: 24px;
-        box-shadow: 0 10px 30px rgba(196, 18, 48, 0.15);
-        color: #111111 !important;
+        box-shadow: 0 10px 30px rgba(196, 18, 48, 0.3);
         margin-bottom: 24px;
         border-top: 4px solid {CMU_RED};
     }}
-    .console-card h1, .console-card h2, .console-card h3, .console-card h4 {{ color: {CMU_RED} !important; }}
-    .console-card p, .console-card strong, .console-card li {{ color: #333333 !important; }}
     
     div[data-testid="stPlotlyChart"] {{ background-color: {WHITE}; border-radius: 12px; padding: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; }}
-    div[data-testid="stMetricValue"] {{ color: #111111 !important; font-weight: 900; }}
-    div[data-testid="stMetricLabel"] {{ color: {CMU_GREY} !important; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }}
+    div[data-testid="stMetricValue"] {{ font-weight: 900; }}
+    div[data-testid="stMetricLabel"] {{ font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }}
     div[data-testid="stMetric"] {{ background-color: {WHITE}; padding: 15px; border-radius: 12px; border-left: 5px solid {CMU_RED}; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }}
     
+    /* Navigation Grid */
     .nav-grid {{ display: flex; justify-content: center; gap: 15px; padding: 10px; margin-bottom: 5px; z-index: 100; position: relative; }}
     .nav-card {{
-        background: rgba(255, 255, 255, 0.05); border: 1px solid {CMU_GREY}; 
+        background: rgba(255, 255, 255, 0.05); border: 1px solid {CMU_RED}; 
         backdrop-filter: blur(10px); border-radius: 8px; padding: 10px;
-        width: 140px; text-align: center; color: {WHITE} !important; text-decoration: none;
+        width: 140px; text-align: center; text-decoration: none;
         transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }}
-    .nav-card:hover {{ border-color: {CMU_RED}; transform: translateY(-5px); box-shadow: 0 8px 20px rgba(196,18,48,0.5); background: rgba(196, 18, 48, 0.15); }}
-    .nav-title {{ font-size: 10px; font-weight: 900; color: {WHITE}; margin-top: 5px; letter-spacing: 1px; text-transform: uppercase; }}
+    .nav-card:hover {{ background: rgba(196, 18, 48, 0.2); transform: translateY(-5px); box-shadow: 0 8px 20px rgba(196,18,48,0.8); }}
+    .nav-title {{ font-size: 10px; font-weight: 900; margin-top: 5px; letter-spacing: 1px; text-transform: uppercase; }}
     header {{ visibility: hidden; }}
 </style>
 """, unsafe_allow_html=True)
@@ -143,7 +150,6 @@ def normalize_key(series):
 
 @st.cache_data
 def build_master_hub():
-    """Agent 2 (Alchemist) Synthesis."""
     try:
         idx = smart_load('ucmcampaignindex')
         if idx is not None and not idx.empty:
@@ -162,10 +168,8 @@ def build_master_hub():
                 g_key = find_col(df, ['ad name', 'campaign'])
                 if g_key:
                     df['utm_clean'] = normalize_key(df[g_key])
-                    
                     cost_col = find_col(df, ['cost', 'spend'])
                     if cost_col: df['Cost'] = clean_num(df[cost_col])
-                    
                     clk_col = find_col(df, ['clicks'])
                     if clk_col: df['Clicks'] = clean_num(df[clk_col])
                         
@@ -242,8 +246,6 @@ def build_master_hub():
         
         hub['Total_Spend'] = hub['GAds_Spend'] + hub['LI_Spend']
         hub['Total_Clicks'] = hub['GAds_Clicks'] + hub['LI_Clicks']
-        
-        # Calculate Drop-off Rate (Clicks vs GA Users)
         hub['Dropoff_Rate'] = np.where(hub['Total_Clicks'] > 0, ((hub['Total_Clicks'] - hub['Total_Users']) / hub['Total_Clicks']).clip(lower=0, upper=1), 0.0)
         
         hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0.0)
@@ -304,12 +306,12 @@ if current_page == "home":
     <style>
         body {{ margin: 0; background: {BLACK}; overflow: hidden; font-family: sans-serif; }}
         .node-label {{
-            position: absolute; background: rgba(0,0,0,0.85); border: 2px solid {CMU_RED};
+            position: absolute; background: rgba(196,18,48,0.85); border: 2px solid {WHITE};
             padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer;
             transition: 0.3s; pointer-events: auto; text-decoration: none; color: {WHITE}; font-size: 11px;
             box-shadow: 0 4px 15px rgba(196,18,48,0.4);
         }}
-        .node-label:hover {{ background: {CMU_RED}; transform: scale(1.1); }}
+        .node-label:hover {{ transform: scale(1.1); background: {WHITE}; color: {CMU_RED}; }}
     </style></head>
     <body><script>
         const scene = new THREE.Scene(); scene.background = new THREE.Color("{BLACK}");
@@ -346,18 +348,18 @@ if current_page == "home":
         }});
 
         const agents = [
-            {{name: "AUDITOR", url: "?page=explorer", color: "{CMU_GREY}", pos: [12, 6, 2]}},
-            {{name: "ALCHEMIST", url: "?page=cleaner", color: "{CMU_GREY}", pos: [-12, -6, 5]}},
-            {{name: "STRATEGIST", url: "?page=analysis", color: "{WHITE}", pos: [6, -12, -5]}},
-            {{name: "ARCHITECT", url: "?page=dashboard", color: "{CMU_RED}", pos: [0, 14, 5]}},
-            {{name: "KNOWLEDGE GRAPH", url: "?page=graph", color: "{WHITE}", pos: [-10, 10, -8]}}
+            {{name: "AUDITOR", url: "?page=explorer", pos: [12, 6, 2]}},
+            {{name: "ALCHEMIST", url: "?page=cleaner", pos: [-12, -6, 5]}},
+            {{name: "STRATEGIST", url: "?page=analysis", pos: [6, -12, -5]}},
+            {{name: "ARCHITECT", url: "?page=dashboard", pos: [0, 14, 5]}},
+            {{name: "KNOWLEDGE GRAPH", url: "?page=graph", pos: [-10, 10, -8]}}
         ];
 
         agents.forEach(a => {{
             const el = document.createElement('a'); el.className = 'node-label';
             el.innerText = a.name; el.href = a.url; el.target = "_self";
             document.body.appendChild(el); a.el = el;
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({{color: a.color, shininess: 100}}));
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({{color: "{CMU_RED}", shininess: 100}}));
             mesh.position.set(...a.pos); scene.add(mesh); a.mesh = mesh;
         }});
 
@@ -374,7 +376,7 @@ if current_page == "home":
         animate();
     </script></body></html>
     """
-    st.markdown(f"<h1 style='text-align: center; color: {WHITE}; font-weight: 900; margin-top: -15px; text-transform: uppercase;'>CMU DATA SYSTEMS</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>CMU DATA SYSTEMS</h1>", unsafe_allow_html=True)
     components.html(three_js_galaxy, height=850)
 
 # ======================= AGENT 1: FORENSIC AUDITOR =======================
@@ -385,11 +387,11 @@ elif current_page == "explorer":
     st.markdown("""
     <div class="console-card">
         <h3 style="margin-top: 0;">Integrity Rules Engine</h3>
-        <p style="margin-bottom: 0;">The Auditor scans raw files directly from your repository root to identify <strong>Orphan IDs</strong> and anomalies before they corrupt downstream models.</p>
+        <p style="margin-bottom: 0;">The Auditor scans raw files directly from your repository root to identify Orphan IDs and anomalies before they corrupt downstream models.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<h3 style='color: white;'>Interactive Schema Explorer</h3>", unsafe_allow_html=True)
+    st.markdown("<h3>Interactive Schema Explorer</h3>", unsafe_allow_html=True)
     f = st.selectbox("Select Target CSV", ALL_FILES)
     df = smart_load(f)
     
@@ -430,10 +432,7 @@ elif current_page == "explorer":
                 else: st.warning("UCM Campaign Index not found to cross-reference.")
             st.markdown("</div>", unsafe_allow_html=True)
             
-    # ---------------------------------------------------------
-    # NEW: CLICK-FRAUD & TRAFFIC DROP-OFF ENGINE
-    # ---------------------------------------------------------
-    st.markdown("<hr><h3 style='color: white;'>🛡️ Traffic Drop-off & Fraud Detection</h3>", unsafe_allow_html=True)
+    st.markdown("<hr><h3>🛡️ Traffic Drop-off & Fraud Detection</h3>", unsafe_allow_html=True)
     st.markdown("""
     <div class='console-card'>
         <p>This engine compares raw clicks from Google Ads/LinkedIn against actual website sessions in Google Analytics. A massive drop-off indicates budget wasted on bot traffic, accidental clicks, or severe landing page friction.</p>
@@ -450,8 +449,7 @@ elif current_page == "explorer":
     else:
         st.info("Master Hub not synthesized yet.")
 
-    # OMNI-ANALYZER
-    st.markdown("<hr><h3 style='color: white;'>🌐 Global Ecosystem Cross-Reference (Omni-Analyzer)</h3>", unsafe_allow_html=True)
+    st.markdown("<hr><h3>🌐 Global Ecosystem Cross-Reference (Omni-Analyzer)</h3>", unsafe_allow_html=True)
     if st.button("Initialize Deep Scan"):
         with st.spinner("Analyzing ecosystem entropy..."):
             all_dfs = {}
@@ -459,14 +457,11 @@ elif current_page == "explorer":
                 loaded_df = smart_load(file)
                 if loaded_df is not None and not loaded_df.empty:
                     all_dfs[file] = loaded_df
-            
             if len(all_dfs) > 1:
                 st.markdown("<div class='console-card'><h4>🔗 Automated Join Recommendations</h4>", unsafe_allow_html=True)
                 cross_ref_results = OmniAnalyzer.cross_reference_ecosystem(all_dfs)
                 st.dataframe(cross_ref_results, use_container_width=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-            else:
-                st.error("Not enough files loaded to run cross-referencing.")
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
@@ -498,9 +493,6 @@ elif current_page == "analysis":
     st.markdown("<h1>🧪 Step 3: Quantitative Strategist</h1>", unsafe_allow_html=True)
     
     if not master_df.empty:
-        # ---------------------------------------------------------
-        # NEW: BUDGET REALLOCATION ENGINE
-        # ---------------------------------------------------------
         st.markdown("<div class='console-card'><h3 style='margin-top: 0;'>💡 AI CMO: Budget Reallocation Engine</h3>", unsafe_allow_html=True)
         valid_camps = master_df[(master_df['Total_Spend'] > 500) & (master_df['Total_Users'] > 50)].copy()
         
@@ -513,7 +505,7 @@ elif current_page == "analysis":
             users_gained = realloc_amount / best_camp['CPWU']
             net_lift = users_gained - users_lost
             
-            st.success(f"**Recommendation:** Reallocate **${realloc_amount:,.0f}** from `{worst_camp['utm_clean']}` (CPWU: ${worst_camp['CPWU']:.2f}) to `{best_camp['utm_clean']}` (CPWU: ${best_camp['CPWU']:.2f}).")
+            st.success(f"**Recommendation:** Reallocate **${realloc_amount:,.0f}** from `{worst_camp['utm_clean']}` to `{best_camp['utm_clean']}`.")
             st.info(f"📈 **Projected Impact:** This move yields a net gain of **+{int(net_lift):,}** users to the university website without increasing the total fiscal budget.")
         else:
             st.warning("Insufficient active campaigns to generate a budget reallocation recommendation.")
@@ -539,13 +531,10 @@ elif current_page == "analysis":
             
             fig_poly = go.Figure()
             fig_poly.add_trace(go.Scatter(x=x_data, y=y_data, mode='markers', name='Campaigns', marker=dict(size=10, color=CMU_RED), text=valid_spend['utm_clean']))
-            fig_poly.add_trace(go.Scatter(x=x_line, y=y_line, mode='lines', name='Fatigue Curve (Poly Reg)', line=dict(color=CMU_GREY, width=3, dash='dash')))
-            
-            fig_poly.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", xaxis_title="Total Campaign Spend ($)", yaxis_title="Total Users Acquired")
+            fig_poly.add_trace(go.Scatter(x=x_line, y=y_line, mode='lines', name='Fatigue Curve', line=dict(color=CMU_GREY, width=3, dash='dash')))
+            fig_poly.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color=CMU_RED, xaxis_title="Total Campaign Spend ($)", yaxis_title="Total Users Acquired")
             st.plotly_chart(fig_poly, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient mapped spend variance for polynomial regression.</strong></div>", unsafe_allow_html=True)
 
         if 'V100' in master_df.columns and 'Engagement_Rate' in master_df.columns:
             valid_vid = master_df[(master_df['V100'] > 0) & (master_df['Engagement_Rate'] > 0)]
@@ -553,34 +542,36 @@ elif current_page == "analysis":
                 vr, _ = stats.pearsonr(valid_vid['V100'], valid_vid['Engagement_Rate'])
                 st.markdown(f"<div class='console-card'><h3>📊 Resonance Modeling: Video Completion vs Engagement</h3><p><strong>Pearson r = {vr:.2f}</strong></p>", unsafe_allow_html=True)
                 fig_v = px.scatter(valid_vid, x="V100", y="Engagement_Rate", size="Total_Users", hover_name="utm_clean", color_discrete_sequence=[CMU_RED], trendline="ols")
-                fig_v.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", xaxis_title="Video Played 100% (%)", yaxis_title="Website Engagement Rate (%)")
+                fig_v.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color=CMU_RED, xaxis_title="Video Played 100% (%)", yaxis_title="Website Engagement Rate (%)")
                 st.plotly_chart(fig_v, use_container_width=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.error("Master Hub is empty. Strategist offline.")
 
 # ======================= AGENT 4: VISUAL ARCHITECT (DASHBOARD) =======================
 elif current_page == "dashboard":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
-    
-    with st.sidebar:
-        st.markdown(f"<h2 style='color: {WHITE};'>🎯 Oracle Filters</h2>", unsafe_allow_html=True)
-        if not master_df.empty:
-            vendors = master_df['Vendor'].dropna().unique().tolist()
-            sel_vendor = st.multiselect("Platform Vendor", vendors, default=vendors)
-            categories = master_df['Category'].dropna().unique().tolist()
-            sel_cat = st.multiselect("Department Category", categories, default=categories)
-        else:
-            sel_vendor, sel_cat = [], []
-
     st.markdown("<h1>🖥️ Step 4: Visual Architect</h1>", unsafe_allow_html=True)
+    
+    # ---------------------------------------------------------
+    # NEW INTERACTIVE & EASY TO USE HORIZONTAL FILTERS
+    # ---------------------------------------------------------
+    st.markdown("<div class='console-card'><h3>🎯 Interactive Quick Filters</h3>", unsafe_allow_html=True)
+    f_col1, f_col2 = st.columns(2)
+    
+    if not master_df.empty:
+        vendors = master_df['Vendor'].dropna().unique().tolist()
+        categories = master_df['Category'].dropna().unique().tolist()
+        
+        with f_col1:
+            sel_vendor = st.multiselect("Select Platform Vendor", vendors, default=vendors)
+        with f_col2:
+            sel_cat = st.multiselect("Select Department Category", categories, default=categories)
+    else:
+        sel_vendor, sel_cat = [], []
+    st.markdown("</div>", unsafe_allow_html=True)
     
     if not master_df.empty:
         f_df = master_df[(master_df['Vendor'].isin(sel_vendor)) & (master_df['Category'].isin(sel_cat))]
         
-        # ---------------------------------------------------------
-        # NEW: EXECUTIVE SUMMARY & DOWNLOAD
-        # ---------------------------------------------------------
         st.markdown("<div class='console-card'>", unsafe_allow_html=True)
         col_text, col_dl = st.columns([3, 1])
         with col_text:
@@ -589,7 +580,7 @@ elif current_page == "dashboard":
             st.markdown(f"Currently viewing **{len(f_df)}** active campaigns across selected filters. The total tracked ecosystem spend is **${f_df['Total_Spend'].sum():,.2f}**, generating **{f_df['Total_Users'].sum():,.0f}** users. The overall click-to-website drop-off rate is **{overall_dropoff:.1%}**.")
         with col_dl:
             csv = f_df.to_csv(index=False).encode('utf-8')
-            st.download_button(label="📥 Download Cleaned Report", data=csv, file_name='CMU_Filtered_Master_Hub.csv', mime='text/csv')
+            st.download_button(label="📥 Download Filtered Report", data=csv, file_name='CMU_Filtered_Master_Hub.csv', mime='text/csv')
         st.markdown("</div>", unsafe_allow_html=True)
 
         m1, m2, m3 = st.columns(3)
@@ -618,10 +609,10 @@ elif current_page == "dashboard":
                 value.append(row['Total_Users'])
                 
             fig_sankey = go.Figure(data=[go.Sankey(
-                node = dict(pad=15, thickness=20, line=dict(color="black", width=0.5), label=all_nodes, color=CMU_RED),
-                link = dict(source=source, target=target, value=value, color="rgba(109, 110, 113, 0.4)")
+                node = dict(pad=15, thickness=20, line=dict(color=CMU_RED, width=0.5), label=all_nodes, color=CMU_RED),
+                link = dict(source=source, target=target, value=value, color="rgba(196, 18, 48, 0.3)")
             )])
-            fig_sankey.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", height=500, margin=dict(t=20, b=20, l=0, r=0))
+            fig_sankey.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color=CMU_RED, height=500, margin=dict(t=20, b=20, l=0, r=0))
             st.plotly_chart(fig_sankey, use_container_width=True)
         else:
             st.info("Insufficient data to render attribution waterfall.")
@@ -632,7 +623,7 @@ elif current_page == "dashboard":
             st.markdown("<div class='console-card'><h3>🔵 The Heartbeat: Temporal Velocity</h3>", unsafe_allow_html=True)
             if not ts_data.empty:
                 fig_ts = px.line(ts_data, x='day', y=['sessions', 'users'], color_discrete_map={"sessions": CMU_GREY, "users": CMU_RED})
-                fig_ts.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", legend_title_text='')
+                fig_ts.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color=CMU_RED, legend_title_text='')
                 st.plotly_chart(fig_ts, use_container_width=True)
             else: st.info("TimeSeries data unavailable.")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -640,7 +631,7 @@ elif current_page == "dashboard":
         with c_right:
             st.markdown("<div class='console-card'><h3>🟣 Department Allocation</h3>", unsafe_allow_html=True)
             fig_bar = px.bar(f_df.groupby('Category')['Total_Spend'].sum().reset_index(), x='Category', y='Total_Spend', color_discrete_sequence=[CMU_RED])
-            fig_bar.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111")
+            fig_bar.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color=CMU_RED)
             st.plotly_chart(fig_bar, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
             
@@ -651,7 +642,7 @@ elif current_page == "dashboard":
             if not v_df.empty:
                 v_melt = v_df.melt(id_vars=["utm_clean"], var_name="Completion", value_name="Retention %")
                 fig_heat = px.density_heatmap(v_melt, x="Completion", y="utm_clean", z="Retention %", color_continuous_scale="Reds", text_auto=True)
-                fig_heat.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111")
+                fig_heat.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color=CMU_RED)
                 st.plotly_chart(fig_heat, use_container_width=True)
             else: st.info("No video retention data available for selected filters.")
         else: st.info("Video completion columns missing from raw data sources.")
@@ -660,7 +651,7 @@ elif current_page == "dashboard":
         st.markdown("<div class='console-card'><h3>🌍 The Attention Economy: Engagement vs Duration</h3>", unsafe_allow_html=True)
         if 'Session_Duration' in f_df.columns and f_df['Session_Duration'].sum() > 0:
             fig_att = px.scatter(f_df, x="Engagement_Rate", y="Session_Duration", size="Total_Users", hover_name="utm_clean", color="Vendor", color_discrete_sequence=[CMU_RED, CMU_GREY, "#000000"])
-            fig_att.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", xaxis_title="Engagement Rate (%)", yaxis_title="Avg Session Duration (s)")
+            fig_att.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color=CMU_RED, xaxis_title="Engagement Rate (%)", yaxis_title="Avg Session Duration (s)")
             st.plotly_chart(fig_att, use_container_width=True)
         else: st.info("Session Duration data unavailable.")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -678,7 +669,7 @@ elif current_page == "graph":
     </div>""", unsafe_allow_html=True)
     
     if not master_df.empty:
-        net = Network(height="750px", width="100%", bgcolor=BLACK, font_color=WHITE, select_menu=True)
+        net = Network(height="750px", width="100%", bgcolor=BLACK, font_color=CMU_RED, select_menu=True)
         net.add_node("CMU", size=60, color=CMU_RED, label="CMU Hub")
         
         for v in master_df['Vendor'].unique():
