@@ -11,237 +11,63 @@ import os
 import base64
 
 # ---------------------------------------------------------
-# MOCK DATA FOR ANALYSIS (FROM REMIX CMU APP)
+# CMU BRAND COLORS & CONFIGURATION
 # ---------------------------------------------------------
+CMU_RED = "#C41230"
+CMU_GREY = "#6D6E71"
+WHITE = "#FFFFFF"
+BLACK = "#050505"
 
-anomalies = [
-    {
-        "id": "A1",
-        "title": "Inconsistent Naming Conventions",
-        "description": "Campaign names in the Monday Board (e.g., 'Podcast Promo - Episode 7 Cosmos') do not match the names in Google Ads.",
-        "impact": "High",
-        "reason": "Prevents automated joining of budget data with performance data, requiring manual mapping.",
-    },
-    {
-        "id": "A2",
-        "title": "Missing Budget & Spend Data",
-        "description": "The 'Budget' and 'Spend' columns in the UCM Campaign Index are almost entirely empty.",
-        "impact": "Critical",
-        "reason": "Impossible to calculate Return on Ad Spend (ROAS) or Cost per Acquisition (CPA) accurately.",
-    },
-    {
-        "id": "A3",
-        "title": "Data Type Mismatches",
-        "description": "Metrics like CTR and View Rates are stored as strings with '%' symbols instead of numeric floats.",
-        "impact": "Medium",
-        "reason": "Causes errors in aggregation and charting tools unless pre-processed.",
-    },
-    {
-        "id": "A4",
-        "title": "Overlapping Campaign Dates",
-        "description": "Several campaigns have run dates that extend beyond their stated campaign end dates.",
-        "impact": "Low",
-        "reason": "Can lead to double-counting or attributing sessions to the wrong fiscal quarter.",
-    }
-]
+st.set_page_config(page_title="CMU Data Systems | Command Center", layout="wide", initial_sidebar_state="expanded")
 
-fileAnomalies = [
-    {
-        "file": "UCM Campaign Index",
-        "issues": [
-            "Missing 'Budget' and 'Spend' values for most rows.",
-            "Inconsistent campaign naming across 'Monday_Board_Name', 'Google_ID', and 'LinkedIn_ID'."
-        ]
-    },
-    {
-        "file": "GAds_AudiencePerformance_by_Campaign_FY24-FY26.csv",
-        "issues": [
-            "Metrics like 'CTR' and 'TrueView view rate' are formatted as strings with '%' symbols."
-        ]
-    },
-    {
-        "file": "LinkedIn_Ad_Performance_Feb2024_Dec2025.csv",
-        "issues": [
-            "Date formats differ from Google Ads exports.",
-            "Metric naming conventions differ (e.g., 'Total Engagements' vs 'Engagements')."
-        ]
-    }
-]
-
-@st.cache_data
-def load_dashboard_data():
-    """Attempts to load real data from CSVs for the dashboard charts. Uses fallbacks if missing/unparseable."""
-    # 1. Fallback / Default Data
-    ts_data = pd.DataFrame([
-      {"day": "Day 0", "sessions": 192, "users": 150},
-      {"day": "Day 10", "sessions": 240, "users": 210},
-      {"day": "Day 20", "sessions": 78, "users": 65},
-      {"day": "Day 30", "sessions": 90, "users": 80},
-      {"day": "Day 40", "sessions": 1146, "users": 950},
-      {"day": "Day 50", "sessions": 2171, "users": 1800},
-      {"day": "Day 60", "sessions": 336, "users": 290},
-      {"day": "Day 70", "sessions": 78, "users": 60},
-      {"day": "Day 80", "sessions": 198, "users": 150},
-      {"day": "Day 90", "sessions": 144, "users": 120},
-    ])
-
-    aud_data = pd.DataFrame([
-      {"segment": "Technology", "impressions": 409264, "clicks": 6922, "ctr": 1.69},
-      {"segment": "Education", "impressions": 264473, "clicks": 3408, "ctr": 1.29},
-      {"segment": "Business Professionals", "impressions": 550214, "clicks": 10733, "ctr": 1.95},
-      {"segment": "Government/Public", "impressions": 41418, "clicks": 2891, "ctr": 6.98},
-      {"segment": "Healthcare Industry", "impressions": 6660, "clicks": 444, "ctr": 6.67},
-    ])
-
-    web_data = pd.DataFrame([
-      {"campaign": "Anthem Campaign", "users": 143502, "engagementRate": 34.8, "avgSessionDuration": 31.5, "year": "FY25", "media": "Video", "vendor": "Google"},
-      {"campaign": "Tony Awards", "users": 138690, "engagementRate": 61.6, "avgSessionDuration": 159.9, "year": "FY26", "media": "Social", "vendor": "LinkedIn"},
-      {"campaign": "Branded Keyword", "users": 81533, "engagementRate": 77.4, "avgSessionDuration": 452.9, "year": "FY25", "media": "Display", "vendor": "Google"},
-      {"campaign": "NVIDIA Conference", "users": 33033, "engagementRate": 14.6, "avgSessionDuration": 291.4, "year": "FY26", "media": "Display", "vendor": "NYT"},
-      {"campaign": "Podcast S2 E1", "users": 15898, "engagementRate": 26.6, "avgSessionDuration": 114.0, "year": "FY26", "media": "Social", "vendor": "Spotify"},
-    ])
-
-    # 2. Extract Real TimeSeries
-    try:
-        ts_dfs = []
-        for f in ['GA_FY25_TimeSeries (1).csv', 'GA_FY26_TimeSeries.csv']:
-            if os.path.exists(f'data/{f}'):
-                tdf = pd.read_csv(f'data/{f}')
-                ts_dfs.append(tdf)
-        if ts_dfs:
-            ts = pd.concat(ts_dfs, ignore_index=True)
-            date_col = next((c for c in ts.columns if 'date' in c.lower() or 'day ' in c.lower()), None)
-            sess_col = next((c for c in ts.columns if 'session' in c.lower() and 'avg' not in c.lower() and 'duration' not in c.lower()), None)
-            user_col = next((c for c in ts.columns if 'user' in c.lower() and 'new' not in c.lower()), None)
-            
-            if date_col and sess_col and user_col:
-                ts = ts.dropna(subset=[date_col])
-                ts['day'] = ts[date_col].astype(str)
-                ts['sessions'] = pd.to_numeric(ts[sess_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
-                ts['users'] = pd.to_numeric(ts[user_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
-                grouped = ts[['day', 'sessions', 'users']].groupby('day').sum().reset_index()
-                if not grouped.empty:
-                    ts_data = grouped.sort_values('day').tail(90)
-    except Exception: pass
-
-    # 3. Extract Real Audience
-    try:
-        if os.path.exists('data/GAds_AudiencePerformance_by_Campaign_FY24-FY26.csv'):
-            ad = pd.read_csv('data/GAds_AudiencePerformance_by_Campaign_FY24-FY26.csv', skiprows=2)
-            if len(ad.columns) < 3:
-                ad = pd.read_csv('data/GAds_AudiencePerformance_by_Campaign_FY24-FY26.csv', skiprows=0)
-            
-            seg_col = next((c for c in ad.columns if 'audience' in c.lower() or 'segment' in c.lower()), ad.columns[0])
-            imp_col = next((c for c in ad.columns if 'impression' in c.lower()), None)
-            clk_col = next((c for c in ad.columns if 'click' in c.lower()), None)
-
-            if imp_col and clk_col:
-                ad['segment'] = ad[seg_col].astype(str)
-                ad['impressions'] = pd.to_numeric(ad[imp_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
-                ad['clicks'] = pd.to_numeric(ad[clk_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
-                grouped_ad = ad[['segment', 'impressions', 'clicks']].groupby('segment').sum().reset_index()
-                grouped_ad = grouped_ad[grouped_ad['segment'].str.lower() != 'nan']
-                grouped_ad['ctr'] = (grouped_ad['clicks'] / grouped_ad['impressions'].replace(0, np.nan)) * 100
-                if not grouped_ad.empty:
-                    aud_data = grouped_ad.sort_values('impressions', ascending=False).head(15)
-    except Exception: pass
-
-    # 4. Extract Real Web Traffic
-    try:
-        web_dfs = []
-        for f in ['GA_FY25_UTM_Totals_Jul2024-Jun2025.csv', 'GA_FY26_UTM_Totals_Jul-Dec2025.csv']:
-            if os.path.exists(f'data/{f}'):
-                wd = pd.read_csv(f'data/{f}')
-                web_dfs.append(wd)
-        if web_dfs:
-            wd = pd.concat(web_dfs, ignore_index=True)
-            camp_col = next((c for c in wd.columns if 'campaign' in c.lower()), wd.columns[0])
-            users_col = next((c for c in wd.columns if 'user' in c.lower()), None)
-            eng_col = next((c for c in wd.columns if 'engagement' in c.lower() and 'rate' in c.lower()), None)
-            dur_col = next((c for c in wd.columns if 'duration' in c.lower() or 'time' in c.lower()), None)
-
-            if users_col and (eng_col or dur_col):
-                wd['campaign'] = wd[camp_col].astype(str)
-                wd['users'] = pd.to_numeric(wd[users_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
-                
-                if eng_col:
-                    wd['engagementRate'] = pd.to_numeric(wd[eng_col].astype(str).str.replace('%', ''), errors='coerce').fillna(0)
-                else:
-                    wd['engagementRate'] = 0.0
-                    
-                if dur_col:
-                    wd['avgSessionDuration'] = pd.to_numeric(wd[dur_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0)
-                else:
-                    wd['avgSessionDuration'] = 0.0
-
-                grouped_users = wd.groupby('campaign')['users'].sum().reset_index()
-                grouped_metrics = wd.groupby('campaign')[['engagementRate', 'avgSessionDuration']].mean().reset_index()
-                grouped_wd = pd.merge(grouped_users, grouped_metrics, on='campaign')
-                grouped_wd = grouped_wd[grouped_wd['campaign'].str.lower() != 'nan']
-                if not grouped_wd.empty:
-                    web_data = grouped_wd.sort_values('users', ascending=False).head(30)
-    except Exception: pass
-
-    return ts_data, aud_data, web_data
-
-timeSeriesData, audiencePerformance, websiteTraffic = load_dashboard_data()
-
-
-# ---------------------------------------------------------
-# 1. PAGE CONFIGURATION & AGENT STATE
-# ---------------------------------------------------------
-st.set_page_config(page_title="CMU AI Nexus | Command Center", layout="wide", initial_sidebar_state="expanded")
-
-st.markdown("""
+st.markdown(f"""
 <style>
-    .stApp {
-        background-color: #050505;
-        color: #ffffff;
-    }
-    .stSidebar {
-        background-color: #111111;
-        color: #ffffff;
-    }
-    h1, h2, h3, h4, h5, h6 {
-        color: white !important;
-    }
-    .console-card {
-        background-color: #ffffff;
-        border-radius: 15px;
+    .stApp {{ background-color: {BLACK}; color: {WHITE}; }}
+    .stSidebar {{ background-color: #111111; color: {WHITE}; }}
+    
+    /* Global Typography - CMU Branded */
+    h1, h2, h3, h4, h5, h6 {{ color: {CMU_RED} !important; font-weight: 900; font-family: 'Segoe UI', sans-serif; letter-spacing: -0.5px; }}
+    
+    .console-card {{
+        background-color: {WHITE};
+        border-radius: 12px;
         padding: 24px;
-        box-shadow: 0 10px 30px rgba(255,255,255,0.05);
+        box-shadow: 0 10px 30px rgba(196, 18, 48, 0.15);
         color: #111111 !important;
         margin-bottom: 24px;
-    }
-    .console-card h1, .console-card h2, .console-card h3, .console-card h4, .console-card p, .console-card strong {
-        color: #111111 !important;
-    }
-    div[data-testid="stPlotlyChart"] {
-        background-color: #ffffff;
-        border-radius: 15px;
-        padding: 15px;
-        box-shadow: 0 10px 30px rgba(255,255,255,0.05);
-    div[data-testid="stMetricValue"], div[data-testid="stMetricLabel"] {
-        color: #111111 !important;
-    }
-    div[data-testid="stMetric"] {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(255,255,255,0.05);
-    }
+        border-top: 4px solid {CMU_RED};
+    }}
+    .console-card h1, .console-card h2, .console-card h3, .console-card h4 {{ color: {CMU_RED} !important; }}
+    .console-card p, .console-card strong, .console-card li {{ color: #333333 !important; }}
+    
+    div[data-testid="stPlotlyChart"] {{ background-color: {WHITE}; border-radius: 12px; padding: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; }}
+    div[data-testid="stMetricValue"] {{ color: #111111 !important; font-weight: 900; }}
+    div[data-testid="stMetricLabel"] {{ color: {CMU_GREY} !important; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }}
+    div[data-testid="stMetric"] {{ background-color: {WHITE}; padding: 15px; border-radius: 12px; border-left: 5px solid {CMU_RED}; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }}
+    
+    /* Navigation Grid */
+    .nav-grid {{ display: flex; justify-content: center; gap: 15px; padding: 10px; margin-bottom: 5px; z-index: 100; position: relative; }}
+    .nav-card {{
+        background: rgba(255, 255, 255, 0.05); border: 1px solid {CMU_GREY}; 
+        backdrop-filter: blur(10px); border-radius: 8px; padding: 10px;
+        width: 140px; text-align: center; color: {WHITE} !important; text-decoration: none;
+        transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }}
+    .nav-card:hover {{ border-color: {CMU_RED}; transform: translateY(-5px); box-shadow: 0 8px 20px rgba(196,18,48,0.5); background: rgba(196, 18, 48, 0.15); }}
+    .nav-title {{ font-size: 10px; font-weight: 900; color: {WHITE}; margin-top: 5px; letter-spacing: 1px; text-transform: uppercase; }}
+    
+    header {{ visibility: hidden; }}
 </style>
 """, unsafe_allow_html=True)
 
 if "agent_memory" not in st.session_state:
     st.session_state.agent_memory = {"audit_logs": {}, "synthesis_stats": {}, "model_results": {}}
 
-# Handle navigation via query params gracefully
 query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
 # ---------------------------------------------------------
-# 2. THE ALCHEMIST ENGINE: AGGRESSIVE ETL NORMALIZATION
+# 2. DATA LOADERS & AGGRESSIVE ETL NORMALIZATION (REAL DATA ONLY)
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -257,7 +83,7 @@ def find_col(df, aliases):
         if alias in df.columns: return alias
     return None
 
-def clean_currency(series):
+def clean_num(series):
     return pd.to_numeric(series.astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0.0)
 
 def normalize_key(series):
@@ -265,99 +91,124 @@ def normalize_key(series):
 
 @st.cache_data
 def build_master_hub():
+    """Agent 2 (Alchemist) Synthesis extracting strictly from available files."""
     try:
+        # Load Index
+        idx = pd.DataFrame()
         if os.path.exists('data/UCM Campaign Index.csv'):
             idx = pd.read_csv('data/UCM Campaign Index.csv')
             utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID', 'Landing Page (UTM)'])
             idx['utm_clean'] = normalize_key(idx[utm_col]) if utm_col else ""
             if 'Category' not in idx.columns: idx['Category'] = "Uncategorized"
-        else:
-            return pd.DataFrame()
 
-        g_files = ['GAds_FY25_Totals_Jul2024-Jun2025.csv', 'GAds_FY26_Totals_Jul-Dec2025.csv']
-        g_dfs = [pd.read_csv(f'data/{f}') for f in g_files if os.path.exists(f'data/{f}')]
-        g_all = pd.concat(g_dfs, ignore_index=True) if g_dfs else pd.DataFrame()
-        if not g_all.empty:
-            g_key = find_col(g_all, ['Ad name', 'Campaign', 'Campaign Name', 'Campaign state'])
-            g_all['utm_clean'] = normalize_key(g_all[g_key]) if g_key else ""
-            g_cost_col = find_col(g_all, ['Cost', 'Spend'])
-            g_all['Cost'] = clean_currency(g_all[g_cost_col]) if g_cost_col else 0.0
-            g_agg = g_all.groupby('utm_clean').agg(GAds_Spend=('Cost', 'sum')).reset_index()
-        else:
-            g_agg = pd.DataFrame(columns=['utm_clean', 'GAds_Spend'])
-
-        li_path = 'data/LinkedIn_Ad_Performance_Feb2024_Dec2025.csv'
-        if os.path.exists(li_path):
-            li = pd.read_csv(li_path)
-            li_key = find_col(li, ['Campaign Name', 'Campaign'])
-            li['utm_clean'] = normalize_key(li[li_key]) if li_key else ""
-            li_spend = find_col(li, ['Total Spend', 'Spend', 'Cost'])
-            li['LI_Spend'] = clean_currency(li[li_spend]) if li_spend else 0.0
-            li_agg = li.groupby('utm_clean').agg(LI_Spend=('LI_Spend', 'sum')).reset_index()
-        else:
-            li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
-
-        ga_files = ['GA_FY25_UTM_Totals_Jul2024-Jun2025.csv', 'GA_FY26_UTM_Totals_Jul-Dec2025.csv']
-        ga_dfs = []
-        for f in ga_files:
+        # GAds Totals & Video Retention Metrics
+        g_dfs, v_dfs = [], []
+        for f in ['GAds_FY25_Totals_Jul2024-Jun2025.csv', 'GAds_FY26_Totals_Jul-Dec2025.csv', 'GAds_FY24-FY26_Monthly_Weekly_Performance_by_Ad.csv']:
             if os.path.exists(f'data/{f}'):
-                try:
-                    _df = pd.read_csv(f'data/{f}')
-                    ga_key = find_col(_df, ['Session campaign', 'Campaign'])
-                    if ga_key:
-                        # Construct composite ID for non-Google vendors logic if columns are present
-                        if 'Session source' in _df.columns and 'Session medium' in _df.columns and 'Session manual ad content' in _df.columns:
-                            combined = _df['Session source'].fillna('') + "_" + _df['Session medium'].fillna('') + "_" + _df[ga_key].fillna('') + "_" + _df['Session manual ad content'].fillna('')
-                            _df['utm_clean'] = normalize_key(combined)
-                        else:
-                            _df['utm_clean'] = normalize_key(_df[ga_key])
-                        
-                        ga_users_col = find_col(_df, ['Total users', 'Users'])
-                        _df['Total users'] = pd.to_numeric(_df[ga_users_col].astype(str).str.replace(r'[^0-9.]', '', regex=True), errors='coerce').fillna(0.0) if ga_users_col else 0.0
-                        ga_dfs.append(_df[['utm_clean', 'Total users']])
-                except Exception as e:
-                    pass
-        ga_agg = pd.concat(ga_dfs).groupby('utm_clean').agg(Total_Users=('Total users', 'sum')).reset_index() if ga_dfs else pd.DataFrame(columns=['utm_clean', 'Total_Users'])
+                df = pd.read_csv(f'data/{f}')
+                g_key = find_col(df, ['Ad name', 'Campaign', 'Campaign Name'])
+                if g_key:
+                    df['utm_clean'] = normalize_key(df[g_key])
+                    # Cost extraction
+                    if find_col(df, ['Cost', 'Spend']):
+                        df['Cost'] = clean_num(df[find_col(df, ['Cost', 'Spend'])])
+                        g_dfs.append(df[['utm_clean', 'Cost']])
+                    # Video Retention extraction (for Strategist & Architect)
+                    v_cols = {'Video played to 25%': 'V25', 'Video played to 50%': 'V50', 'Video played to 75%': 'V75', 'Video played to 100%': 'V100'}
+                    has_video = False
+                    for k, v in v_cols.items():
+                        if k in df.columns:
+                            df[v] = clean_num(df[k])
+                            has_video = True
+                    if has_video:
+                        v_dfs.append(df[['utm_clean'] + list(v_cols.values())])
 
-        hub = pd.merge(idx, ga_agg, on='utm_clean', how='left')
+        g_agg = pd.concat(g_dfs).groupby('utm_clean').agg(GAds_Spend=('Cost', 'sum')).reset_index() if g_dfs else pd.DataFrame(columns=['utm_clean', 'GAds_Spend'])
+        v_agg = pd.concat(v_dfs).groupby('utm_clean').mean().reset_index() if v_dfs else pd.DataFrame()
+
+        # LinkedIn Pipeline
+        li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
+        if os.path.exists('data/LinkedIn_Ad_Performance_Feb2024_Dec2025.csv'):
+            li = pd.read_csv('data/LinkedIn_Ad_Performance_Feb2024_Dec2025.csv')
+            li_key = find_col(li, ['Campaign Name', 'Campaign'])
+            if li_key:
+                li['utm_clean'] = normalize_key(li[li_key])
+                li_spend = find_col(li, ['Total Spend', 'Spend', 'Cost'])
+                li['LI_Spend'] = clean_num(li[li_spend]) if li_spend else 0.0
+                li_agg = li.groupby('utm_clean').agg(LI_Spend=('LI_Spend', 'sum')).reset_index()
+
+        # GA Metrics Pipeline
+        ga_dfs = []
+        for f in ['GA_FY25_UTM_Totals_Jul2024-Jun2025.csv', 'GA_FY26_UTM_Totals_Jul-Dec2025.csv']:
+            if os.path.exists(f'data/{f}'):
+                _df = pd.read_csv(f'data/{f}')
+                ga_key = find_col(_df, ['Session campaign', 'Campaign'])
+                if ga_key:
+                    _df['utm_clean'] = normalize_key(_df[ga_key])
+                    u_col = find_col(_df, ['Total users', 'Users'])
+                    e_col = find_col(_df, ['Engagement rate'])
+                    d_col = find_col(_df, ['Average session duration'])
+                    
+                    _df['Total_Users'] = clean_num(_df[u_col]) if u_col else 0.0
+                    _df['Engagement_Rate'] = clean_num(_df[e_col]) if e_col else 0.0
+                    _df['Session_Duration'] = clean_num(_df[d_col]) if d_col else 0.0
+                    ga_dfs.append(_df[['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration']])
+                    
+        if ga_dfs:
+            ga_concat = pd.concat(ga_dfs)
+            ga_agg = ga_concat.groupby('utm_clean').agg(Total_Users=('Total_Users', 'sum'), Engagement_Rate=('Engagement_Rate', 'mean'), Session_Duration=('Session_Duration', 'mean')).reset_index()
+        else:
+            ga_agg = pd.DataFrame(columns=['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration'])
+
+        # Master Synthesis Join
+        hub = idx if not idx.empty else pd.DataFrame(columns=['utm_clean'])
+        hub = pd.merge(hub, ga_agg, on='utm_clean', how='left')
         hub = pd.merge(hub, g_agg, on='utm_clean', how='left')
-        hub = pd.merge(hub, li_agg, on='utm_clean', how='left').fillna(0.0)
+        hub = pd.merge(hub, li_agg, on='utm_clean', how='left')
+        if not v_agg.empty:
+            hub = pd.merge(hub, v_agg, on='utm_clean', how='left')
+            
+        hub.fillna(0.0, inplace=True)
+        hub['Total_Spend'] = hub['GAds_Spend'] + hub['LI_Spend']
+        hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0.0)
         
-        hub['Total_Spend'] = pd.to_numeric(hub['GAds_Spend'] + hub['LI_Spend'], errors='coerce').fillna(0.0).astype(float)
-        hub['Total_Users'] = pd.to_numeric(hub['Total_Users'], errors='coerce').fillna(0.0).astype(float)
-        hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0.0).astype(float)
-        
+        # Define Vendor mapping
+        hub['Vendor'] = np.where(hub['GAds_Spend'] > hub['LI_Spend'], 'Google Ads', 
+                                np.where(hub['LI_Spend'] > 0, 'LinkedIn', 'Organic/Other'))
         return hub
     except Exception as e:
         return pd.DataFrame()
 
-# Fallback fake data if NO files exist - allows dashboard testing
+@st.cache_data
+def load_timeseries_data():
+    """Extracts Real TimeSeries Data for Architect Heartbeat."""
+    try:
+        ts_dfs = []
+        for f in ['GA_FY25_TimeSeries (1).csv', 'GA_FY26_TimeSeries.csv']:
+            if os.path.exists(f'data/{f}'):
+                ts_dfs.append(pd.read_csv(f'data/{f}'))
+        if ts_dfs:
+            ts = pd.concat(ts_dfs, ignore_index=True)
+            date_col = find_col(ts, ['Date', 'Day', 'Day Index'])
+            s_col = find_col(ts, ['Sessions', 'sessions'])
+            u_col = find_col(ts, ['Total users', 'Users'])
+            if date_col and s_col and u_col:
+                ts['day'] = ts[date_col].astype(str)
+                ts['sessions'] = clean_num(ts[s_col])
+                ts['users'] = clean_num(ts[u_col])
+                return ts[['day', 'sessions', 'users']].groupby('day').sum().reset_index().sort_values('day').tail(90)
+    except: pass
+    return pd.DataFrame()
+
 master_df = build_master_hub()
-if master_df.empty:
-    master_df = pd.DataFrame({
-        'Category': ['Technology', 'Education', 'Business', 'Technology', 'Healthcare'],
-        'utm_clean': ['tech_1', 'edu_2', 'bus_3', 'tech_4', 'health_5'],
-        'Total_Spend': [10000, 5500, 12000, 8000, 3000],
-        'Total_Users': [5000, 2000, 8000, 3500, 500],
-        'CPWU': [2.0, 2.75, 1.5, 2.28, 6.0]
-    })
+ts_data = load_timeseries_data()
 
 # ---------------------------------------------------------
 # 3. GLOBAL UI: NAVIGATION
 # ---------------------------------------------------------
 nav_cards_html = """
-<style>
-.nav-grid { display: flex; justify-content: center; gap: 15px; padding: 10px; margin-bottom: 5px; }
-.nav-card {
-    background: #fff; border: 2px solid #E0E0E0; border-radius: 12px; padding: 10px;
-    width: 130px; text-align: center; color: #333 !important; text-decoration: none;
-    transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-.nav-card:hover { border-color: #6366f1; transform: translateY(-5px); box-shadow: 0 8px 15px rgba(99,102,241,0.2); }
-.nav-title { font-size: 10px; font-weight: 900; color: #6366f1; margin-top: 5px; }
-</style>
 <div class="nav-grid">
-    <a href="?page=home" target="_self" class="nav-card">🏠<div class="nav-title">HOME</div></a>
+    <a href="?page=home" target="_self" class="nav-card">🌌<div class="nav-title">NEXUS</div></a>
     <a href="?page=explorer" target="_self" class="nav-card">🕵️<div class="nav-title">1. AUDITOR</div></a>
     <a href="?page=cleaner" target="_self" class="nav-card">⚗️<div class="nav-title">2. ALCHEMIST</div></a>
     <a href="?page=analysis" target="_self" class="nav-card">🧪<div class="nav-title">3. STRATEGIST</div></a>
@@ -366,521 +217,317 @@ nav_cards_html = """
 </div>
 """
 
-# ======================= HOME: 3D GALAXY =======================
+# ======================= HOME: 3D CMU GALAXY =======================
 if current_page == "home":
     st.markdown("<style>.block-container { padding: 0; } header { visibility: hidden; }</style>", unsafe_allow_html=True)
     st.markdown(nav_cards_html, unsafe_allow_html=True)
-    st.markdown("<h1 style='text-align: center; color: #ffffff; font-weight: 900; margin-top: -15px;'>CMU AI NEXUS</h1>", unsafe_allow_html=True)
     
-    three_js_galaxy = """
+    three_js_galaxy = f"""
     <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body { margin: 0; background: #fff; overflow: hidden; font-family: sans-serif; }
-        .node-label {
-            position: absolute; background: rgba(255,255,255,0.95); border: 2px solid #6366f1;
-            padding: 6px 12px; border-radius: 20px; font-weight: bold; cursor: pointer;
-            transition: 0.3s; pointer-events: auto; text-decoration: none; color: #6366f1; font-size: 11px;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-        }
-        .node-label:hover { background: #6366f1; color: white; }
+        body {{ margin: 0; background: {BLACK}; overflow: hidden; font-family: sans-serif; }}
+        .node-label {{
+            position: absolute; background: rgba(0,0,0,0.85); border: 2px solid {CMU_RED};
+            padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer;
+            transition: 0.3s; pointer-events: auto; text-decoration: none; color: {WHITE}; font-size: 11px;
+            box-shadow: 0 4px 15px rgba(196,18,48,0.4);
+        }}
+        .node-label:hover {{ background: {CMU_RED}; transform: scale(1.1); }}
     </style></head>
     <body><script>
-        const scene = new THREE.Scene(); scene.background = new THREE.Color(0x050505);
+        const scene = new THREE.Scene(); scene.background = new THREE.Color("{BLACK}");
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+        const renderer = new THREE.WebGLRenderer({{antialias: true, alpha: true}});
         renderer.setSize(window.innerWidth, window.innerHeight); document.body.appendChild(renderer.domElement);
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.autoRotate = true; controls.autoRotateSpeed = 0.5; controls.enableDamping = true;
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); scene.add(ambientLight);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1); dirLight.position.set(10, 20, 10); scene.add(dirLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(10, 20, 10); scene.add(dirLight);
 
-        // PARTICLES
+        // CMU BRANDED PARTICLES
         const count = 35000; const pos = new Float32Array(count * 3); const colors = new Float32Array(count * 3);
-        const cmuRed = new THREE.Color(0xC41230); const cmuGray = new THREE.Color(0x6D6E71); const cmuWhite = new THREE.Color(0xFFFFFF);
-        for(let i=0; i<count; i++){
+        const cRed = new THREE.Color("{CMU_RED}"); const cGrey = new THREE.Color("{CMU_GREY}"); const cWhite = new THREE.Color("{WHITE}");
+        for(let i=0; i<count; i++){{
             const r = 25 * Math.cbrt(Math.random()); const t = Math.random()*2*Math.PI; const p = Math.acos(2*Math.random()-1);
             pos[i*3] = r * Math.sin(p) * Math.cos(t); pos[i*3+1] = r * Math.sin(p) * Math.sin(t); pos[i*3+2] = r * Math.cos(p);
             const rand = Math.random();
-            let c = cmuRed;
-            if(rand > 0.6) c = cmuWhite; else if(rand > 0.3) c = cmuGray;
+            let c = cRed;
+            if(rand > 0.6) c = cWhite; else if(rand > 0.3) c = cGrey;
             colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
-        }
+        }}
         const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        const mat = new THREE.PointsMaterial({size: 0.08, vertexColors: true, transparent: true, opacity: 0.8, blending: THREE.NormalBlending });
+        const mat = new THREE.PointsMaterial({{size: 0.06, vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending }});
         scene.add(new THREE.Points(geo, mat));
 
-        // TEXT CORE
+        // TEXT CORE (CMU)
         const loader = new THREE.FontLoader();
-        loader.load('https://unpkg.com/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {
-            const textGeo = new THREE.TextGeometry('CMU', { font: font, size: 6, height: 1, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.05 });
+        loader.load('https://unpkg.com/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {{
+            const textGeo = new THREE.TextGeometry('CMU', {{ font: font, size: 6, height: 1.5, curveSegments: 10, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.05 }});
             textGeo.computeBoundingBox(); const centerOffset = -0.5 * (textGeo.boundingBox.max.x - textGeo.boundingBox.min.x);
             textGeo.translate(centerOffset, -1.2, 0);
-            const textMat = new THREE.MeshPhongMaterial({color: 0xC41230, emissive: 0x6D091A, shininess: 80});
+            const textMat = new THREE.MeshPhongMaterial({{color: "{CMU_RED}", emissive: 0x400000, shininess: 100}});
             scene.add(new THREE.Mesh(textGeo, textMat));
-        });
+        }});
 
         const agents = [
-            {name: "AUDITOR", url: "?page=explorer", color: "#f59e0b", pos: [12, 6, 2]},
-            {name: "ALCHEMIST", url: "?page=cleaner", color: "#10b981", pos: [-12, -6, 5]},
-            {name: "STRATEGIST", url: "?page=analysis", color: "#6366f1", pos: [6, -12, -5]},
-            {name: "ARCHITECT", url: "?page=dashboard", color: "#8b5cf6", pos: [0, 14, 5]},
-            {name: "KNOWLEDGE GRAPH", url: "?page=graph", color: "#14b8a6", pos: [-10, 10, -8]}
+            {{name: "AUDITOR", url: "?page=explorer", color: "{CMU_GREY}", pos: [12, 6, 2]}},
+            {{name: "ALCHEMIST", url: "?page=cleaner", color: "{CMU_GREY}", pos: [-12, -6, 5]}},
+            {{name: "STRATEGIST", url: "?page=analysis", color: "{WHITE}", pos: [6, -12, -5]}},
+            {{name: "ARCHITECT", url: "?page=dashboard", color: "{CMU_RED}", pos: [0, 14, 5]}},
+            {{name: "KNOWLEDGE GRAPH", url: "?page=graph", color: "{WHITE}", pos: [-10, 10, -8]}}
         ];
 
-        agents.forEach(a => {
+        agents.forEach(a => {{
             const el = document.createElement('a'); el.className = 'node-label';
             el.innerText = a.name; el.href = a.url; el.target = "_self";
             document.body.appendChild(el); a.el = el;
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({color: a.color, shininess: 100}));
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({{color: a.color, shininess: 100}}));
             mesh.position.set(...a.pos); scene.add(mesh); a.mesh = mesh;
-        });
+        }});
 
         camera.position.z = 35;
-        function animate(){
+        function animate(){{
             requestAnimationFrame(animate);
-            agents.forEach(a => {
+            agents.forEach(a => {{
                 const vector = a.mesh.position.clone().project(camera);
                 a.el.style.left = (vector.x + 1) / 2 * window.innerWidth + 'px';
                 a.el.style.top = -(vector.y - 1) / 2 * window.innerHeight + 'px';
-            });
+            }});
             controls.update(); renderer.render(scene, camera);
-        }
+        }}
         animate();
     </script></body></html>
     """
+    st.markdown(f"<h1 style='text-align: center; color: {WHITE}; font-weight: 900; margin-top: -15px; text-transform: uppercase;'>CMU DATA SYSTEMS</h1>", unsafe_allow_html=True)
     components.html(three_js_galaxy, height=850)
 
 # ======================= AGENT 1: FORENSIC AUDITOR =======================
 elif current_page == "explorer":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
-    try:
-        from streamlit_extras.colored_header import colored_header
-        colored_header("Step 1: Forensic Auditor", "Deep-File Profiling & Schema Analysis.", color_name="light-blue-70")
-    except ImportError:
-        st.header("Step 1: Forensic Auditor")
-        st.markdown("<div class='console-card'><h4 style='margin:0;'>Deep-File Profiling & Schema Analysis.</h4></div>", unsafe_allow_html=True)
+    st.markdown("<h1>🕵️ Step 1: Forensic Auditor</h1>", unsafe_allow_html=True)
 
     st.markdown("""
-    <div class="console-card" style="border-left: 4px solid #f59e0b;">
-        <h3 style="margin-top: 0;">Why is this important?</h3>
-        <p style="margin-bottom: 0;">Before we can draw any meaningful insights, we must ensure the data is trustworthy. Inconsistent naming conventions prevent us from joining ad spend data with website performance data. Missing budget figures make it impossible to calculate ROI. The Data Auditor acts as our first line of defense.</p>
+    <div class="console-card">
+        <h3 style="margin-top: 0;">Integrity Rules Engine</h3>
+        <p style="margin-bottom: 0;">The Auditor scans raw CSVs to identify <strong>Orphan IDs</strong> and missing financial values before they corrupt downstream models. All insights below are generated in real-time from the selected file.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<div class='console-card'><h3 style='margin: 0;'>General Anomalies</h3></div>", unsafe_allow_html=True)
-    
-    def render_anomaly_card(anomaly):
-        color_map = {"Critical": "#ef4444", "High": "#f97316", "Medium": "#f59e0b", "Low": "#3b82f6"}
-        bg_map = {"Critical": "#fee2e2", "High": "#ffedd5", "Medium": "#fef3c7", "Low": "#dbeafe"}
-        color = color_map.get(anomaly['impact'], "#333")
-        bg = bg_map.get(anomaly['impact'], "#fff")
-        
-        st.markdown(f"""
-        <div class="console-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 15px;">
-                <h4 style="margin: 0; font-weight: 600;">{anomaly['title']}</h4>
-                <span style="background-color: {bg}; color: {color}; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; border: 1px solid {color};">{anomaly['impact']} Target</span>
-            </div>
-            <div>
-                <p style="margin-bottom: 10px; font-size: 14px;"><strong>Issue:</strong> {anomaly['description']}</p>
-                <p style="margin-bottom: 0; font-size: 14px;"><strong>Consequence:</strong> {anomaly['reason']}</p>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    col1, col2 = st.columns(2)
-    for i, anom in enumerate(anomalies):
-        with (col1 if i % 2 == 0 else col2):
-            render_anomaly_card(anom)
-
-    st.markdown("<div class='console-card'><h3 style='margin: 0;'>File-Specific Audit Report</h3></div>", unsafe_allow_html=True)
-    for fa in fileAnomalies:
-        with st.expander(f"📄 {fa['file']}"):
-            issues_html = "".join([f"<li style='color:#111111;'>{issue}</li>" for issue in fa['issues']])
-            st.markdown(f"<div style='background: white; padding: 15px; border-radius: 10px;'><ul>{issues_html}</ul></div>", unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("<div class='console-card'><h3 style='margin: 0;'>Interactive Schema Explorer & Orphan ID Detection</h3></div>", unsafe_allow_html=True)
+    st.markdown("<h3 style='color: white;'>Interactive Schema Explorer</h3>", unsafe_allow_html=True)
     f = st.selectbox("Select Target CSV", ALL_FILES)
     if os.path.exists(f'data/{f}'):
         df = pd.read_csv(f'data/{f}')
         
         t1, t2, t3, t4 = st.tabs(["📊 Data Viewer", "🔍 Data Profile", "📈 Descriptive Stats", "🚨 Orphan ID Scan"])
         with t1:
-            try:
-                from streamlit_extras.dataframe_explorer import dataframe_explorer
-                st.dataframe(dataframe_explorer(df), use_container_width=True)
-            except:
-                st.dataframe(df, use_container_width=True)
+            st.markdown("<div class='console-card'>", unsafe_allow_html=True)
+            st.dataframe(df.head(100), use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         with t2:
-            st.markdown("<p style='color: white;'><strong>Schema Definitions & Types</strong></p>", unsafe_allow_html=True)
+            st.markdown("<div class='console-card'>", unsafe_allow_html=True)
             profile = pd.DataFrame({'Data Type': df.dtypes.astype(str), 'Null Count': df.isna().sum(), 'Unique Values': df.nunique()})
             st.dataframe(profile, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         with t3:
+            st.markdown("<div class='console-card'>", unsafe_allow_html=True)
             st.dataframe(df.describe(include='all').T, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         with t4:
-            st.markdown("<p style='color: white;'><strong>Orphan ID Detection:</strong> Scanning for IDs not present in 'UCM Campaign Index.csv'</p>", unsafe_allow_html=True)
+            st.markdown("<div class='console-card'>", unsafe_allow_html=True)
+            st.markdown("<h4>Orphan ID Detection</h4>", unsafe_allow_html=True)
             if 'UCM Campaign Index.csv' in f:
-                st.info("Currently viewing the master index itself.")
+                st.info("Viewing the Master Index. No cross-reference possible.")
             else:
                 if os.path.exists('data/UCM Campaign Index.csv'):
                     idx_df = pd.read_csv('data/UCM Campaign Index.csv')
-                    utm_col_idx = find_col(idx_df, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID'])
-                    idx_keys = set(normalize_key(idx_df[utm_col_idx]).tolist()) if utm_col_idx else set()
-                    
-                    target_key_col = find_col(df, ['Ad name', 'Campaign', 'Campaign Name', 'Session campaign'])
-                    if target_key_col and idx_keys:
-                        df_keys = set(normalize_key(df[target_key_col]).tolist())
-                        orphans = list(df_keys - idx_keys)
-                        orphans = [o for o in orphans if o] # remove empty strings
-                        
+                    idx_keys = set(normalize_key(idx_df[find_col(idx_df, ['UTM campaign', 'Campaign_ID'])]).tolist())
+                    t_key = find_col(df, ['Ad name', 'Campaign', 'Session campaign'])
+                    if t_key:
+                        orphans = list(set(normalize_key(df[t_key]).tolist()) - idx_keys)
+                        orphans = [o for o in orphans if o and o != 'nan']
                         if orphans:
-                            st.error(f"⚠️ Found {len(orphans)} Orphan IDs operating without a mapped budget/project in the master index.")
+                            st.error(f"⚠️ {len(orphans)} Orphan IDs operating without budget/project mapping.")
                             st.dataframe(pd.DataFrame({"Orphan_IDs": orphans}), use_container_width=True)
                         else:
-                            st.success("✅ Clean: All parsed campaign IDs in this file map correctly to the Master Index.")
-                    else:
-                        st.warning("Could not locate a recognizable 'Campaign' or 'ID' column in this file to match against the index.")
-                else:
-                    st.warning("UCM Campaign Index.csv not found locally to perform cross-reference.")
-            
-        if df.empty:
-            st.markdown("<div class='console-card'><strong style='color:#ef4444;'>⚠️ The file is empty. I cannot provide insights.</strong></div>", unsafe_allow_html=True)
-        else:
-            missing = df.isna().mean().max() * 100
-            dupes = df.duplicated().sum()
-            txt = f"<ul style='color:#111111; margin-bottom:0;'>"
-            txt += f"<li><strong>Data Completeness</strong>: The highest missing value rate in any column is <strong>{missing:.1f}%</strong>.</li>"
-            txt += f"<li><strong>Duplication Risk</strong>: Found <strong>{dupes}</strong> duplicate rows.</li>"
-            
-            txt += "<li>🚨 <strong>Automated Schema Mapping</strong>: Evaluating against UCM Campaign Index (Ground Truth). Flagged unlinked Google_ID/LinkedIn_ID records to ensure 100% attribution continuity.</li>"
-            txt += "<li>🧹 <strong>Structural Bloat Purge</strong>: Detected unstructured trailing empty rows. Sent signal to Alchemist for automated pruning.</li>"
-            
-            if "Total Spend" in df.columns or "Cost" in df.columns or "Spend" in df.columns or sum("cost" in c.lower() for c in df.columns) > 0:
-                txt += "<li><strong>Financial Data Detected</strong>: Ensure that currency values are standardized before joining.</li>"
-            if "Session campaign" in df.columns or "Campaign" in df.columns or "UTM campaign" in df.columns or sum("campaign" in c.lower() for c in df.columns) > 0:
-                txt += "<li><strong>UTM Keys Detected</strong>: Proceed to the Alchemist to fuzzy match campaign names to Google IDs.</li>"
-                txt += "<li>⚠️ <strong>Mixed-Type Alert</strong>: 'Call to Action' columns contain both URLs and text strings. Downstream normalization required.</li>"
-            txt += "</ul>"
-
-            st.markdown(f"<div class='console-card'><h3 style='margin-top:0;'>🤖 Auditor Insights</h3>{txt}</div>", unsafe_allow_html=True)
+                            st.success("✅ Clean: All parsed IDs map correctly to the Master Index.")
+                    else: st.warning("No campaign key column found to cross-reference.")
+            st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.markdown("<div class='console-card'><strong style='color:#f59e0b;'>⚠️ File not found in local 'data/' directory. Relying on pre-configured schema analysis above.</strong></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ File not found.</strong> Ensure {f} is in the data/ directory.</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 2: DATA ALCHEMIST =======================
 elif current_page == "cleaner":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
-    try:
-        from streamlit_extras.colored_header import colored_header
-        colored_header("Step 2: Data Alchemist", "Synthesized Master Hub: Standardized financial strings and cross-platform joins.", color_name="green-70")
-    except:
-        st.header("Step 2: Data Alchemist")
+    st.markdown("<h1>⚗️ Step 2: Data Alchemist</h1>", unsafe_allow_html=True)
 
     st.markdown("""
-    <div class="console-card" style="border-left: 4px solid #10b981;">
-        <h3 style="margin-top: 0;">What is the Alchemist doing?</h3>
+    <div class="console-card">
+        <h3 style="margin-top: 0;">The Synthesis Engine</h3>
         <p style="margin-bottom: 0;">
-        The Alchemist handles programmatic <strong>ETL (Extract, Transform, Load)</strong> operations and acts to sanitize and marry disparate datasets.<br><br>
-        <strong>1. TimeSeries Reshaping & Normalization:</strong> It 'melts' wide GA TimeSeries data (365 day columns) into a 'Long' format (Day, User_Count), unifies casing, and strips tracking parameters for a clean 'utm' ID.<br>
-        <strong>2. Standardization:</strong> It aggressively cleans financial fields, removing currency symbols and commas, enforcing strict numeric data types to prevent analytical errors.<br>
-        <strong>3. Attribution Continuity:</strong> Constructs a reliable <i>Unique_Campaign_ID</i> (Source_Medium_Campaign_Content) for non-Google vendors like Axios or Politico, allowing cross-platform joins.
+        <strong>1. Standardization:</strong> Aggressively cleans financial fields, removing currency symbols, and enforcing strict numeric arrays.<br>
+        <strong>2. Normalization:</strong> Strips special characters and unifies casing to create a flawless <code>utm_clean</code> primary key for SQL-style LEFT JOINS.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<div class='console-card'><h3 style='margin-top:0; color:#10b981 !important;'>✅ Alchemist Pipeline Applied</h3><p style='margin:0;'>Fuzzy matching logic and strict type conversion utilized to build the Master Hub below.</p></div>", unsafe_allow_html=True)
-    st.dataframe(master_df, use_container_width=True)
+    st.markdown("<div class='console-card'>", unsafe_allow_html=True)
+    if not master_df.empty:
+        st.success(f"✅ Master Hub Synthesized. {len(master_df)} campaigns merged.")
+        st.dataframe(master_df, use_container_width=True)
+    else:
+        st.error("Alchemist failed to synthesize. Please ensure Index and GA/GAds files are present in data/ directory.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
 elif current_page == "analysis":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
-    try:
-        from streamlit_extras.colored_header import colored_header
-        colored_header("Step 3: Quantitative Strategist", "Inferring mathematical truth from the cleaned hub.", color_name="indigo-70")
-    except:
-        st.header("Step 3: Quantitative Strategist")
+    st.markdown("<h1>🧪 Step 3: Quantitative Strategist</h1>", unsafe_allow_html=True)
     
     st.markdown("""
-    <div class="console-card" style="border-left: 4px solid #6366f1;">
-        <h3 style="margin-top: 0;">What is the Strategist doing?</h3>
+    <div class="console-card">
+        <h3 style="margin-top: 0;">Data-Driven Predictive Modeling</h3>
         <p style="margin-bottom: 0;">
-        The Strategist employs quantitative reasoning to discover hidden correlations and optimize allocation. Instead of just showing numbers, it determines <i>relationships</i> between metrics.<br><br>
-        <strong>1. Creative Efficiency Metric:</strong> It extends beyond Cost Per User to "Cost Per Completion," evaluating 100% video completion rates to see which 15s or 30s creatives are efficiently consumed.<br>
-        <strong>2. Optimization Lift Analysis:</strong> Compares algorithmic targeting against manual Custom Intent Segments (e.g., "AI Chatbot") to evaluate the AI's real-world outperformance.<br>
-        <strong>3. Social Resonance Ratio:</strong> Correlates LinkedIn Dwell Time with GA Session Duration to calculate an engagement "Research Interest Index."
+        The Strategist operates strictly on the synthesized Master Hub. It models relationships (like Creative Resonance) to prove mathematical correlations between asset consumption and website engagement.
         </p>
     </div>
     """, unsafe_allow_html=True)
     
     if not master_df.empty:
         c1, c2, c3 = st.columns(3)
-        valid_data = master_df[(master_df['Total_Spend'] > 0) | (master_df['Total_Users'] > 0)].copy()
+        valid_spend = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)]
         
-        if len(valid_data) > 0:
-            if valid_data['Total_Spend'].var() > 0 and valid_data['Total_Users'].var() > 0:
-                corr, _ = stats.pearsonr(valid_data['Total_Spend'], valid_data['Total_Users'])
-                corr_val = f"{corr:.2f}"
-            else:
-                corr_val = "N/A"
-            c1.metric("Spend-to-User Correlation (Pearson)", corr_val, help="1.0 is perfect correlation. 0 is none.")
-            c2.metric("Significant Campaigns Tracked", len(valid_data))
-            c3.metric("Cost per Acquired User (Avg)", f"${valid_data['CPWU'].mean():.2f}")
+        # Spend Correlation
+        if len(valid_spend) > 2 and valid_spend['Total_Spend'].var() > 0:
+            corr, _ = stats.pearsonr(valid_spend['Total_Spend'], valid_spend['Total_Users'])
+            c1.metric("Spend-to-User Correlation", f"{corr:.2f}")
+            c2.metric("Significant Campaigns", len(valid_spend))
+            c3.metric("Cost per Acquired User (Avg)", f"${valid_spend['CPWU'].mean():.2f}")
             
-            try:
-                valid_data['Efficiency Tier'] = pd.qcut(valid_data['CPWU'], q=3, labels=['High (Low CPA)', 'Medium', 'Low (High CPA)'])
-            except:
-                valid_data['Efficiency Tier'] = 'Unclassified'
-            
-            st.markdown("<div class='console-card'><h3 style='margin:0;'>Spend vs Users (Correlation)</h3></div>", unsafe_allow_html=True)
-            fig_s = px.scatter(valid_data, x="Total_Spend", y="Total_Users", 
-                                       color="Category", title="Efficiency Frontier: Are we getting what we pay for?")
-            fig_s.update_layout(font_color="#111111", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+            st.markdown("<div class='console-card'><h3>Spend vs Users (Efficiency Frontier)</h3>", unsafe_allow_html=True)
+            fig_s = px.scatter(valid_spend, x="Total_Spend", y="Total_Users", color="Category", trendline="ols")
+            fig_s.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111")
             st.plotly_chart(fig_s, use_container_width=True)
-                                       
-            st.markdown("<div class='console-card'><h3 style='margin:0;'>Cost-Efficiency Tiering Analysis</h3></div>", unsafe_allow_html=True)
-            fig_c = px.scatter(valid_data, x="Total_Spend", y="CPWU", 
-                                       color="Efficiency Tier", size="Total_Users", hover_name="utm_clean",
-                                       title="Cluster Analysis: Identifying High-Spend, Low-Efficiency Campaigns")
-            fig_c.update_layout(font_color="#111111", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig_c, use_container_width=True)
-            
-            # Resonance Correlation
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("<div class='console-card'><h3 style='margin:0;'>📊 Resonance Modeling: Video Completion vs Engagement</h3></div>", unsafe_allow_html=True)
-            
-            res_df = pd.DataFrame([
-                {"Campaign": "Anthem 15s", "Video played to 100%": 55, "Engagement Rate": 68.4},
-                {"Campaign": "AI Research", "Video played to 100%": 35, "Engagement Rate": 45.2},
-                {"Campaign": "Creative Leader", "Video played to 100%": 25, "Engagement Rate": 38.1},
-                {"Campaign": "Podcast S2", "Video played to 100%": 10, "Engagement Rate": 26.6},
-                {"Campaign": "Arts Gallery", "Video played to 100%": 42, "Engagement Rate": 58.7},
-                {"Campaign": "Alumni Voices", "Video played to 100%": 18, "Engagement Rate": 31.0},
-            ])
-            r, _ = stats.pearsonr(res_df['Video played to 100%'], res_df['Engagement Rate'])
-            
-            st.info(f"**Alternative Regression (Resonance)**: Due to high sparsity in Spend data across the Master Index, the Strategist shifts to evaluating creative 'stickiness'. \n\n**Pearson Correlation (r)**: `{r:.2f}` — A strong positive correlation mathematically proves that campaigns achieving higher full-video completion rates directly drive higher-quality site visitation (Engagement Rate).")
-            
-            fig_r = px.scatter(res_df, x="Video played to 100%", y="Engagement Rate", size="Engagement Rate",
-                               hover_name="Campaign", color_discrete_sequence=["#f43f5e"],
-                               title="Creative Resonance: Does finishing the ad improve site engagement?")
-            fig_r.update_layout(font_color="#111111", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig_r, use_container_width=True)
-
+            st.markdown("</div>", unsafe_allow_html=True)
         else:
-            c1.metric("Spend-to-User Correlation", "N/A")
-            c2.metric("Significant Campaigns Tracked", len(valid_data))
-            c3.metric("Cost per Acquired User (Avg)", "N/A")
-            st.markdown("<div class='console-card'><strong>⚠️ Notice:</strong> Insufficient variance or lack of spend/user overlap. Charts require joined numeric data.</div>", unsafe_allow_html=True)
+            c1.metric("Spend Correlation", "N/A")
+            c2.metric("Significant Campaigns", len(valid_spend))
+            st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient spend variance for regression.</strong></div>", unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("<div class='console-card'><h3 style='margin:0;'>🏆 Creative Leaderboard: Full Completion Rate vs. Spend</h3></div>", unsafe_allow_html=True)
-        leader_df = pd.DataFrame([
-            {"Ad/Theme": "Anthem 15s (Arts)", "Spend": "$15,400", "Completion Rate": "55%", "Cost per Full Completion": "$1.24", "Optimized Targeting Lift": "+24%"},
-            {"Ad/Theme": "AI Research (Tech)", "Spend": "$8,200", "Completion Rate": "35%", "Cost per Full Completion": "$1.48", "Optimized Targeting Lift": "+18%"},
-            {"Ad/Theme": "Anthem 30s (Arts)", "Spend": "$22,100", "Completion Rate": "25%", "Cost per Full Completion": "$3.12", "Optimized Targeting Lift": "+6%"},
-            {"Ad/Theme": "Podcast S2 (Research)", "Spend": "$4,500", "Completion Rate": "10%", "Cost per Full Completion": "$8.40", "Optimized Targeting Lift": "-2%"}
-        ])
-        st.dataframe(leader_df, use_container_width=True)
+        # Video Resonance Correlation (Requires V100 and Engagement Rate from Real Data)
+        if 'V100' in master_df.columns and 'Engagement_Rate' in master_df.columns:
+            valid_vid = master_df[(master_df['V100'] > 0) & (master_df['Engagement_Rate'] > 0)]
+            if len(valid_vid) > 2 and valid_vid['V100'].var() > 0:
+                vr, _ = stats.pearsonr(valid_vid['V100'], valid_vid['Engagement_Rate'])
+                st.markdown(f"<div class='console-card'><h3>📊 Resonance Modeling: Video Completion vs Engagement</h3><p><strong>Pearson r = {vr:.2f}</strong></p>", unsafe_allow_html=True)
+                fig_v = px.scatter(valid_vid, x="V100", y="Engagement_Rate", size="Total_Users", hover_name="utm_clean", color_discrete_sequence=[CMU_RED], trendline="ols")
+                fig_v.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", xaxis_title="Video Played 100% (%)", yaxis_title="Website Engagement Rate (%)")
+                st.plotly_chart(fig_v, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient Video Data for Resonance Modeling.</strong></div>", unsafe_allow_html=True)
+    else:
+        st.error("Master Hub is empty. Strategist offline.")
 
 # ======================= AGENT 4: VISUAL ARCHITECT (DASHBOARD) =======================
 elif current_page == "dashboard":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
     
     with st.sidebar:
-        st.markdown("### 🌌 Command Center Filters")
-        selected_year = st.selectbox("Fiscal Year", ["All", "FY25", "FY26"])
-        selected_media = st.selectbox("Media Category", ["All", "Video", "Social", "Display"])
-        selected_vendor = st.selectbox("Vendor", ["All", "Google", "LinkedIn", "NYT", "Spotify"])
-        st.markdown("---")
-        st.caption("Filters apply to Architect Dashboard")
-
-    st.markdown("""
-        <div class="console-card">
-            <h1 style='color: #0f172a !important; display: flex; align-items: center; gap: 15px; margin: 0;'>
-                <span style='font-size: 32px;'>🖥️</span> The Oracle Dashboard
-            </h1>
-            <p style='color: #475569 !important; font-size: 18px; margin: 0;'>Omniscient synthesis of the marketing ecosystem.</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Filter data based on sidebar
-    filtered_web = websiteTraffic.copy()
-    if not filtered_web.empty and 'year' in filtered_web.columns:
-        if selected_year != "All": filtered_web = filtered_web[filtered_web['year'] == selected_year]
-        if selected_media != "All": filtered_web = filtered_web[filtered_web['media'] == selected_media]
-        if selected_vendor != "All": filtered_web = filtered_web[filtered_web['vendor'] == selected_vendor]
-
-    # Calculate real KPI metrics dynamically
-    total_imp = audiencePerformance['impressions'].sum() if not audiencePerformance.empty else 28400000
-    if total_imp >= 1000000:
-        imp_display = f"{total_imp/1000000:.1f}M"
-    elif total_imp >= 1000:
-        imp_display = f"{total_imp/1000:.1f}K"
-    else:
-        imp_display = str(int(total_imp))
-        
-    avg_eng = filtered_web['engagementRate'].mean() if not filtered_web.empty else 4.2
-    eng_display = f"{avg_eng:.1f}%" if pd.notna(avg_eng) else "0%"
-    
-    active_camps = filtered_web.shape[0] if not filtered_web.empty else master_df[(master_df['Total_Spend'] > 0) | (master_df['Total_Users'] > 0)].shape[0]
-
-    # KPIs styled like the AI Studio Dashboard
-    k1, k2, k3 = st.columns(3)
-    k1.markdown(f"""
-        <div class="console-card">
-            <p style='color: #64748b; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px;'>Total Impressions</p>
-            <div style='display: flex; justify-content: space-between; align-items: flex-end;'>
-                <h2 style='color: #60a5fa; font-size: 36px; font-weight: 900; margin: 0; line-height: 1;'>{imp_display}</h2>
-                <span style='background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-family: monospace; font-size: 12px; color: #475569;'>Real Data</span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    k2.markdown(f"""
-        <div class="console-card">
-            <p style='color: #64748b; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px;'>Avg Engagement</p>
-            <div style='display: flex; justify-content: space-between; align-items: flex-end;'>
-                <h2 style='color: #c084fc; font-size: 36px; font-weight: 900; margin: 0; line-height: 1;'>{eng_display}</h2>
-                <span style='background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-family: monospace; font-size: 12px; color: #475569;'>Real Data</span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    k3.markdown(f"""
-        <div class="console-card">
-            <p style='color: #64748b; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px;'>Active Campaigns</p>
-            <div style='display: flex; justify-content: space-between; align-items: flex-end;'>
-                <h2 style='color: #34d399; font-size: 36px; font-weight: 900; margin: 0; line-height: 1;'>{active_camps}</h2>
-                <span style='background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-family: monospace; font-size: 12px; color: #475569;'>Tracked</span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="console-card" style="border-left: 4px solid #3b82f6;">
-        <h3 style="margin-top: 0;">How to interpret the Architect Dashboard?</h3>
-        <p style="margin-bottom: 0;">
-        The Architect provides the final holistic visualization of your integrated data streams.<br><br>
-        <strong>- "Heartbeat" Spike Detection:</strong> The pulse chart identifies massive event-driven spikes (e.g., Tony Awards hitting 8.5K users, SXSW at 4.3K).<br>
-        <strong>- Retention Heatmaps:</strong> Visualizes the video drop-off waterfall (25%, 50%, 75%, 100%) to isolate where messaging loses the audience.<br>
-        <strong>- The Attention Economy:</strong> The scatter plot balances <i>depth</i> (session duration) vs. <i>breadth</i> (engagement rate). Bubble size denotes total user volume.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    colA, colB = st.columns(2)
-    
-    # Temporal Velocity Line Chart
-    with colA:
-        st.markdown("<div class='console-card'><h3 style='color: #0f172a !important; margin:0;'>🔵 Heartbeat Pulse: Temporal Velocity</h3></div>", unsafe_allow_html=True)
-        # Inject Tony Awards and SXSW peaks into data to demonstrate "Pulse" if they don't explicitly exist
-        if not timeSeriesData.empty:
-            max_day = str(timeSeriesData['day'].iloc[-1] if len(timeSeriesData) > 0 else "")
-            peak_data = pd.DataFrame([{"day": "2025-06-16 (Tony)", "users": 8509, "sessions": 9200}, {"day": "2025-03-08 (SXSW)", "users": 4397, "sessions": 4800}])
-            plot_data = pd.concat([timeSeriesData, peak_data], ignore_index=True)
+        st.markdown(f"<h2 style='color: {WHITE};'>🎯 Oracle Filters</h2>", unsafe_allow_html=True)
+        if not master_df.empty:
+            vendors = master_df['Vendor'].dropna().unique().tolist()
+            sel_vendor = st.multiselect("Platform Vendor", vendors, default=vendors)
+            categories = master_df['Category'].dropna().unique().tolist()
+            sel_cat = st.multiselect("Department Category", categories, default=categories)
         else:
-            plot_data = timeSeriesData
-            
-        fig1 = px.line(plot_data, x='day', y=['sessions', 'users'], 
-                       color_discrete_map={"sessions": "#34d399", "users": "#60a5fa"})
-        fig1.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
-                           legend_title_text='', margin=dict(l=0,r=0,t=20,b=0), font_color="#111111",
-                           hovermode="x unified")
-        fig1.update_traces(line=dict(width=4))
-        st.plotly_chart(fig1, use_container_width=True)
+            sel_vendor, sel_cat = [], []
 
-    # Audience Resonance Bar Chart
-    with colB:
-        st.markdown("<div class='console-card'><h3 style='color: #0f172a !important; margin:0;'>🟣 Audience Resonance (CTR)</h3></div>", unsafe_allow_html=True)
-        fig2 = px.bar(audiencePerformance, x='segment', y='ctr', 
-                      color_discrete_sequence=["#c084fc"])
-        fig2.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color="#111111",
-                           margin=dict(l=0,r=0,t=20,b=0))
-        st.plotly_chart(fig2, use_container_width=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<h1>🖥️ Step 4: Visual Architect</h1>", unsafe_allow_html=True)
     
-    # Retention Heatmaps
-    st.markdown("<div class='console-card'><h3 style='color: #0f172a !important; margin:0;'>🔥 Viewer Retention Heatmap (Video Campaigns)</h3></div>", unsafe_allow_html=True)
-    retention_data = pd.DataFrame([
-        {"Campaign": "Anthem 30s", "25%": 85, "50%": 60, "75%": 40, "100%": 25},
-        {"Campaign": "Anthem 15s", "25%": 92, "50%": 78, "75%": 65, "100%": 55},
-        {"Campaign": "Podcast Promo", "25%": 70, "50%": 45, "75%": 20, "100%": 10},
-        {"Campaign": "AI Research", "25%": 88, "50%": 75, "75%": 50, "100%": 35},
-    ])
-    retention_melted = retention_data.melt(id_vars=["Campaign"], var_name="Completion", value_name="Retention %")
-    fig_heat = px.density_heatmap(retention_melted, x="Completion", y="Campaign", z="Retention %", 
-                                  color_continuous_scale="Reds", text_auto=True)
-    fig_heat.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color="#111111", margin=dict(l=0,r=0,t=20,b=0))
-    st.plotly_chart(fig_heat, use_container_width=True)
+    if not master_df.empty:
+        f_df = master_df[(master_df['Vendor'].isin(sel_vendor)) & (master_df['Category'].isin(sel_cat))]
+        
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Filtered Acquired Users", f"{f_df['Total_Users'].sum():,.0f}")
+        m2.metric("Avg Website Engagement", f"{f_df['Engagement_Rate'].mean():.1f}%")
+        m3.metric("Filtered Spend Tracked", f"${f_df['Total_Spend'].sum():,.2f}")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        c_left, c_right = st.columns(2)
+        with c_left:
+            st.markdown("<div class='console-card'><h3>🔵 The Heartbeat: Temporal Velocity</h3>", unsafe_allow_html=True)
+            if not ts_data.empty:
+                fig_ts = px.line(ts_data, x='day', y=['sessions', 'users'], color_discrete_map={"sessions": CMU_GREY, "users": CMU_RED})
+                fig_ts.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", legend_title_text='')
+                st.plotly_chart(fig_ts, use_container_width=True)
+            else: st.info("TimeSeries data unavailable.")
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+        with c_right:
+            st.markdown("<div class='console-card'><h3>🟣 Department Allocation</h3>", unsafe_allow_html=True)
+            fig_bar = px.bar(f_df.groupby('Category')['Total_Spend'].sum().reset_index(), x='Category', y='Total_Spend', color_discrete_sequence=[CMU_RED])
+            fig_bar.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111")
+            st.plotly_chart(fig_bar, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+            
+        # Real Retention Heatmap 
+        st.markdown("<div class='console-card'><h3>🔥 Video Retention Heatmap (Real GAds Data)</h3>", unsafe_allow_html=True)
+        v_cols = ['V25', 'V50', 'V75', 'V100']
+        if all(c in f_df.columns for c in v_cols):
+            v_df = f_df[f_df['V25'] > 0][['utm_clean'] + v_cols].head(10)
+            if not v_df.empty:
+                v_melt = v_df.melt(id_vars=["utm_clean"], var_name="Completion", value_name="Retention %")
+                fig_heat = px.density_heatmap(v_melt, x="Completion", y="utm_clean", z="Retention %", color_continuous_scale="Reds", text_auto=True)
+                fig_heat.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111")
+                st.plotly_chart(fig_heat, use_container_width=True)
+            else: st.info("No video retention data available for selected filters.")
+        else: st.info("Video completion columns missing from raw data sources.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Attention Economy Scatter
-    st.markdown("<div class='console-card'><h3 style='color: #0f172a !important; margin:0;'>🌍 The Attention Economy: Engagement vs. Dwell Time</h3><p style='color: #475569 !important; font-size: 14px; margin: 0;'>Bubble volume correlates to user magnitude. High-velocity campaigns often exhibit low dwell latency.</p></div>", unsafe_allow_html=True)
-    if not filtered_web.empty:
-        fig3 = px.scatter(filtered_web, x="engagementRate", y="avgSessionDuration", size="users",
-                          color_discrete_sequence=["#3b82f6"], hover_name="campaign")
-        fig3.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color="#111111", 
-            xaxis_title="Engagement Rate (%)", yaxis_title="Session Duration (s)",
-            margin=dict(l=0,r=0,t=20,b=0)
-        )
-        st.plotly_chart(fig3, use_container_width=True)
+        st.markdown("<div class='console-card'><h3>🌍 The Attention Economy: Engagement vs Duration</h3>", unsafe_allow_html=True)
+        if 'Session_Duration' in f_df.columns and f_df['Session_Duration'].sum() > 0:
+            fig_att = px.scatter(f_df, x="Engagement_Rate", y="Session_Duration", size="Total_Users", hover_name="utm_clean", color="Vendor", color_discrete_sequence=[CMU_RED, CMU_GREY, "#000000"])
+            fig_att.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111", xaxis_title="Engagement Rate (%)", yaxis_title="Avg Session Duration (s)")
+            st.plotly_chart(fig_att, use_container_width=True)
+        else: st.info("Session Duration data unavailable.")
+        st.markdown("</div>", unsafe_allow_html=True)
     else:
-        st.info("No data available for the selected filters.")
+        st.error("No data available. Dashboard offline.")
 
 # ======================= AGENT 5: KNOWLEDGE GRAPH =======================
 elif current_page == "graph":
     st.markdown(nav_cards_html, unsafe_allow_html=True)
-    try:
-        from streamlit_extras.colored_header import colored_header
-        colored_header("Step 5: Knowledge Graph", "Relational Mapping of University Data Streams.", color_name="light-blue-70")
-    except:
-        st.header("Step 5: Knowledge Graph")
+    st.markdown("<h1>🕸️ Step 5: Knowledge Graph</h1>", unsafe_allow_html=True)
+    
+    st.markdown("""<div class="console-card">
+        <h3>Tripartite Relational Universe</h3>
+        <p>This graph maps the physical data flow generated by the Alchemist: <strong>CMU Data Systems → Platform Vendor → Targeted Campaign</strong>. Node sizes are scaled by actual Total User volume.</p>
+    </div>""", unsafe_allow_html=True)
     
     if not master_df.empty:
-        net = Network(height="650px", width="100%", bgcolor="#050505", font_color="#ffffff", select_menu=True)
-        net.add_node("CMU Hub", size=60, color="#C41230", label="CMU NEXUS")
+        net = Network(height="750px", width="100%", bgcolor=BLACK, font_color=WHITE, select_menu=True)
+        net.add_node("CMU", size=60, color=CMU_RED, label="CMU Hub")
         
-        vendors_config = {"Google": "#4285F4", "LinkedIn": "#0077B5", "Axios": "#6366f1", "Spotify": "#10b981", "NYT": "#f59e0b", "Unknown": "#6D6E71"}
-        for v, c in vendors_config.items():
-            net.add_node(v, size=35, color=c)
-            net.add_edge("CMU Hub", v)
-
-        count = 0
+        for v in master_df['Vendor'].unique():
+            if pd.isna(v) or v == "": continue
+            net.add_node(str(v), size=35, color=CMU_GREY, label=str(v))
+            net.add_edge("CMU", str(v))
             
-        for _, row in master_df.sort_values('Total_Users', ascending=False).iterrows():
-            camp = str(row.get('utm_clean', '')).strip()
-            if not camp or count > 50: continue
-            
-            users = max(row.get('Total_Users', 0), 1)
-            # Scale up Anthem Campaign (Sun) vs others (Satellites) based on volume
-            node_size = min(max(np.sqrt(users) / 4, 8), 50)
-            
-            # Determine Vendor
-            vendor = "Unknown"
-            vtext = camp.lower()
-            if row.get('GAds_Spend', 0) > 0 or 'google' in vtext or 'discovery' in vtext or 'search' in vtext: vendor = "Google"
-            elif row.get('LI_Spend', 0) > 0 or 'linkedin' in vtext or 'li_' in vtext: vendor = "LinkedIn"
-            elif 'axios' in vtext: vendor = "Axios"
-            elif 'spotify' in vtext or 'podcast' in vtext: vendor = "Spotify"
-            elif 'nyt' in vtext: vendor = "NYT"
-            else:
-                # Based on mock web data
-                if 'anthem' in vtext or 'branded' in vtext: vendor = "Google"
-                elif 'tony' in vtext: vendor = "LinkedIn"
-
-            net.add_node(camp, size=node_size, color="#ffffff", title=f"Campaign: {camp} | Users: {users:,.0f} | Vendor: {vendor}", font={"color": "#ffffff"})
-            net.add_edge(vendor, camp)
-            
-            count += 1
-            
+            camps = master_df[master_df['Vendor'] == v].sort_values('Total_Users', ascending=False).head(15)
+            for _, row in camps.iterrows():
+                camp = str(row['utm_clean'])
+                users = max(row.get('Total_Users', 0), 1)
+                n_size = min(max(np.sqrt(users) / 2, 10), 45)
+                
+                if camp and camp != "nan":
+                    net.add_node(camp, size=n_size, color=WHITE, title=f"{camp} | Users: {users:,.0f}")
+                    net.add_edge(str(v), camp)
+        
         with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmp:
             net.save_graph(tmp.name)
             with open(tmp.name, 'r', encoding='utf-8') as f:
-                components.html(f.read(), height=700)
+                html_data = f.read().replace('<style type="text/css">', '<style type="text/css">\n #mynetwork {border: none; outline: none;}\n')
+                components.html(html_data, height=800)
