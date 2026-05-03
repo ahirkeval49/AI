@@ -244,8 +244,7 @@ st.markdown("<hr style='border-color: #333; margin-top: 0px;'>", unsafe_allow_ht
 # ======================= HOME: 3D CMU GALAXY =======================
 if current_page == "home":
     st.markdown(f"<h1 style='text-align: center; font-size: 60px; margin-top: 50px; margin-bottom: 0px;'>CMU COMMAND CENTER</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center; color: #888; letter-spacing: 2px;'>DETERMINISTIC SPLIT-KEY ENGINE</p>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center; color: #555; font-size: 13px; font-style: italic; margin-top: -10px;'>Left-Click to Rotate • Right-Click to Pan • Scroll to Zoom</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; color: #555; font-size: 13px; font-style: italic; margin-top: -10px;'>EXPLORE THE ECOSYSTEM: Click and drag to ROTATE the structure • Right-click to PAN Use your mouse wheel to ZOOM IN/OUT — dive deep to find the CMU RED core or click any NODE to navigate to that mission page</p>", unsafe_allow_html=True)
     
     three_js_galaxy = f"""
     <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
