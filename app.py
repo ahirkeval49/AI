@@ -10,7 +10,6 @@ import tempfile
 import os
 import re
 from itertools import combinations
-from datetime import datetime
 
 # ---------------------------------------------------------
 # CMU BRAND COLORS & CONFIGURATION
@@ -520,65 +519,59 @@ elif current_page == "analysis":
     st.markdown("<h1>🧪 Step 3: Quantitative Strategist</h1>", unsafe_allow_html=True)
     
     if not master_df.empty:
-        # ---------------------------------------------------------
-        # NEW: INTERACTIVE BUDGET SIMULATOR
-        # ---------------------------------------------------------
-        st.markdown("<div class='console-card'><h3 style='margin-top: 0;'>🎮 Digital Twin: Budget Reallocation Simulator</h3>", unsafe_allow_html=True)
-        st.markdown("<p>Adjust total budget and media mix to dynamically forecast user acquisition and engagement based on our historical channel efficiency.</p>", unsafe_allow_html=True)
+        st.markdown("<div class='console-card'><h3 style='margin-top: 0;'>💡 Budget Reallocation Engine (Historical Math)</h3>", unsafe_allow_html=True)
+        valid_camps = master_df[(master_df['Total_Spend'] > 500) & (master_df['Total_Users'] > 50)].copy()
         
-        vendor_metrics = master_df[master_df['Total_Users'] > 0].groupby('Vendor').agg({'Total_Spend':'sum', 'Total_Users':'sum', 'Engagement_Rate':'mean'}).reset_index()
-        vendor_metrics['CPA'] = vendor_metrics['Total_Spend'] / vendor_metrics['Total_Users']
-        
-        # Safe defaults based on historical extraction
-        cpa_dict = vendor_metrics.set_index('Vendor')['CPA'].to_dict()
-        eng_dict = vendor_metrics.set_index('Vendor')['Engagement_Rate'].to_dict()
-        
-        g_cpa = cpa_dict.get('Google Ads', 1.50)
-        l_cpa = cpa_dict.get('LinkedIn', 4.80)
-        o_cpa = cpa_dict.get('Organic/Other', 8.50)
-        
-        g_eng = eng_dict.get('Google Ads', 0.35)
-        l_eng = eng_dict.get('LinkedIn', 0.68)
-        o_eng = eng_dict.get('Organic/Other', 0.45)
-        
-        tot_budget = st.slider("Total Campaign Budget ($)", 10000, 500000, 100000, 5000)
-        c1, c2, c3 = st.columns(3)
-        g_pct = c1.number_input("Google Ads Allocation %", 0, 100, 50)
-        l_pct = c2.number_input("LinkedIn Ads Allocation %", 0, 100, 30)
-        o_pct = c3.number_input("Organic/Other Allocation %", 0, 100, 20)
-        
-        if g_pct + l_pct + o_pct != 100:
-            st.warning("⚠️ Vendor allocations must sum exactly to 100%. Please adjust.")
+        if len(valid_camps) >= 2:
+            best_camp = valid_camps.loc[valid_camps['CPWU'].idxmin()]
+            worst_camp = valid_camps.loc[valid_camps['CPWU'].idxmax()]
+            
+            realloc_amount = 5000
+            users_lost = realloc_amount / worst_camp['CPWU']
+            users_gained = realloc_amount / best_camp['CPWU']
+            net_lift = users_gained - users_lost
+            
+            st.success(f"**Recommendation:** Reallocate **${realloc_amount:,.0f}** from `{worst_camp['utm_clean']}` to `{best_camp['utm_clean']}`.")
+            st.info(f"📈 **Projected Impact:** This move yields a net gain of **+{int(net_lift):,}** users to the university website without increasing the total fiscal budget.")
         else:
-            g_budg = tot_budget * (g_pct/100)
-            l_budg = tot_budget * (l_pct/100)
-            o_budg = tot_budget * (o_pct/100)
-            
-            g_users = g_budg / g_cpa if g_cpa > 0 else 0
-            l_users = l_budg / l_cpa if l_cpa > 0 else 0
-            o_users = o_budg / o_cpa if o_cpa > 0 else 0
-            total_pred_users = g_users + l_users + o_users
-            
-            blended_eng = 0
-            if total_pred_users > 0:
-                blended_eng = ((g_users * g_eng) + (l_users * l_eng) + (o_users * o_eng)) / total_pred_users
-                
-            p1, p2 = st.columns(2)
-            p1.metric("Predicted Total Users", f"{total_pred_users:,.0f}")
-            p2.metric("Blended Avg. Engagement Rate", f"{blended_eng*100:.1f}%")
-            
-            sim_df = pd.DataFrame({
-                "Vendor": ["Google Ads", "LinkedIn", "Organic/Other"],
-                "Predicted Users": [g_users, l_users, o_users]
-            })
-            fig_sim = px.bar(sim_df, x="Vendor", y="Predicted Users", color_discrete_sequence=[CMU_RED])
-            fig_sim.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color=CMU_RED, margin=dict(t=20, b=0, l=0, r=0), height=300)
-            st.plotly_chart(fig_sim, use_container_width=True)
-            
+            st.warning("Insufficient active campaigns to generate a budget reallocation recommendation.")
         st.markdown("</div>", unsafe_allow_html=True)
-        
+
         # ---------------------------------------------------------
-        # NEW: COST PER QUALITY MINUTE (CPQM)
+        # PURE DATA REPLACEMENT: AUDIENCE SEGMENT EFFICIENCY
+        # ---------------------------------------------------------
+        st.markdown("<div class='console-card'><h3>👥 Audience Segment Efficiency Matrix</h3>", unsafe_allow_html=True)
+        st.markdown("<p>Extracts strict deterministic CTR performance based on Audience Segment from the raw execution data.</p>", unsafe_allow_html=True)
+        
+        aud_df = smart_load('gadsaudienceperformancebycampaignfy24fy26')
+        if aud_df is not None:
+            seg_col = find_col(aud_df, ['audience segment'])
+            clk_col = find_col(aud_df, ['clicks'])
+            imp_col = find_col(aud_df, ['impr', 'impressions'])
+            
+            if seg_col and clk_col and imp_col:
+                aud_df[clk_col] = clean_num(aud_df[clk_col])
+                aud_df[imp_col] = clean_num(aud_df[imp_col])
+                
+                # Group purely by Data
+                aud_agg = aud_df.groupby(seg_col).agg({clk_col: 'sum', imp_col: 'sum'}).reset_index()
+                # Filter out low impression sets to ensure statistical significance
+                aud_agg = aud_agg[aud_agg[imp_col] > 5000].copy()
+                aud_agg['True_CTR'] = aud_agg[clk_col] / aud_agg[imp_col]
+                
+                if not aud_agg.empty:
+                    top_aud = aud_agg.sort_values('True_CTR', ascending=False).head(10)
+                    st.dataframe(top_aud.style.format({'True_CTR': '{:.2%}', clk_col: '{:,.0f}', imp_col: '{:,.0f}'}), use_container_width=True)
+                else:
+                    st.info("No audience segments met the minimum impression threshold for analysis.")
+            else:
+                st.info("Could not locate necessary columns in Audience Performance file.")
+        else:
+            st.info("Audience Performance raw file not found.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # ---------------------------------------------------------
+        # COST PER QUALITY MINUTE & REGRESSION
         # ---------------------------------------------------------
         c1, c2, c3 = st.columns(3)
         valid_spend = master_df[(master_df['Total_Spend'] > 0) & (master_df['Total_Users'] > 0)].copy()
@@ -588,7 +581,6 @@ elif current_page == "analysis":
             c1.metric("Spend Correlation (Pearson)", f"{corr:.2f}")
             c2.metric("Analyzed Campaigns", len(valid_spend))
             
-            # CPQM Calculation
             valid_spend['CPQM'] = valid_spend['Total_Spend'] / ((valid_spend['Total_Users'] * valid_spend['Session_Duration']) / 60).clip(lower=1)
             c3.metric("Cost Per Quality Minute (Avg)", f"${valid_spend['CPQM'].mean():.2f}")
             
@@ -613,56 +605,18 @@ elif current_page == "analysis":
             top_cpqm = valid_spend[['utm_clean', 'Vendor', 'CPQM', 'Session_Duration', 'Total_Spend']].sort_values('CPQM').head(5)
             st.dataframe(top_cpqm.style.format({'CPQM': '${:.2f}', 'Total_Spend': '${:,.2f}', 'Session_Duration': '{:.1f}s'}), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
-            
         else:
             st.markdown(f"<div class='console-card'><strong style='color:{CMU_RED};'>⚠️ Insufficient mapped spend variance for mathematical regression.</strong></div>", unsafe_allow_html=True)
 
-        # ---------------------------------------------------------
-        # NEW: AD COPY NLP ANALYZER
-        # ---------------------------------------------------------
-        st.markdown("<div class='console-card'><h3>🧠 AI Copywriter: NLP Resonance Extraction</h3>", unsafe_allow_html=True)
-        ads_df = smart_load('gadsfy24fy26monthlyweeklyperformance')
-        if ads_df is not None:
-            hl_col = find_col(ads_df, ['headline 1', 'headline'])
-            v_col = find_col(ads_df, ['video played to 100%'])
-            if hl_col and v_col:
-                ads_df[v_col] = clean_num(ads_df[v_col])
-                ads_df = ads_df.dropna(subset=[hl_col])
-                
-                stopwords = {"the", "and", "to", "of", "a", "in", "for", "is", "on", "with", "at", "as", "by", "-", "|"}
-                word_scores = {}
-                
-                for _, row in ads_df.iterrows():
-                    text = str(row[hl_col]).lower()
-                    words = set(re.findall(r'\b[a-z]{3,}\b', text)) - stopwords
-                    completion_rate = row[v_col]
-                    
-                    for w in words:
-                        if w not in word_scores:
-                            word_scores[w] = {'count': 0, 'sum_completion': 0.0}
-                        word_scores[w]['count'] += 1
-                        word_scores[w]['sum_completion'] += completion_rate
-                        
-                nlp_results = []
-                for w, data in word_scores.items():
-                    if data['count'] >= 3: # Filter low frequency words
-                        nlp_results.append({
-                            'Keyword': w.capitalize(),
-                            'Occurrences': data['count'],
-                            'Avg 100% Completion Rate': data['sum_completion'] / data['count']
-                        })
-                
-                if nlp_results:
-                    nlp_df = pd.DataFrame(nlp_results).sort_values('Avg 100% Completion Rate', ascending=False).head(10)
-                    st.markdown("<p>Top keywords in ad headlines driving the highest video completion rates.</p>", unsafe_allow_html=True)
-                    st.dataframe(nlp_df.style.format({'Avg 100% Completion Rate': '{:.1f}%'}), use_container_width=True)
-                else:
-                    st.info("Not enough textual data to perform NLP word-frequency analysis.")
-            else:
-                st.info("Headline or Video metrics not found in current raw data.")
-        else:
-            st.info("GAds Monthly Weekly Performance file needed for NLP extraction.")
-        st.markdown("</div>", unsafe_allow_html=True)
+        if 'V100' in master_df.columns and 'Engagement_Rate' in master_df.columns:
+            valid_vid = master_df[(master_df['V100'] > 0) & (master_df['Engagement_Rate'] > 0)]
+            if len(valid_vid) > 2 and valid_vid['V100'].var() > 0:
+                vr, _ = stats.pearsonr(valid_vid['V100'], valid_vid['Engagement_Rate'])
+                st.markdown(f"<div class='console-card'><h3>📊 Resonance Modeling: Video Completion vs Engagement</h3><p><strong>Pearson r = {vr:.2f}</strong></p>", unsafe_allow_html=True)
+                fig_v = px.scatter(valid_vid, x="V100", y="Engagement_Rate", size="Total_Users", hover_name="utm_clean", color_discrete_sequence=[CMU_RED], trendline="ols")
+                fig_v.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color=CMU_RED, xaxis_title="Video Played 100% (%)", yaxis_title="Website Engagement Rate (%)")
+                st.plotly_chart(fig_v, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 4: VISUAL ARCHITECT (DASHBOARD) =======================
 elif current_page == "dashboard":
@@ -706,13 +660,11 @@ elif current_page == "dashboard":
         st.markdown("<br>", unsafe_allow_html=True)
         
         # ---------------------------------------------------------
-        # NEW: FLIGHT RISK (BUDGET PACING)
+        # FLIGHT RISK (BUDGET PACING)
         # ---------------------------------------------------------
         st.markdown("<div class='console-card'><h3>⏳ Flight Risk: Campaign Pacing</h3>", unsafe_allow_html=True)
         if 'Run_Dates' in f_df.columns and 'Budget' in f_df.columns:
-            # We are mimicking the "Current Date" as requested in the context: May 3, 2026.
             current_date = pd.to_datetime('2026-05-03')
-            
             pacing_data = []
             for _, row in f_df.iterrows():
                 try:
