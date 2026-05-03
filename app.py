@@ -9,7 +9,6 @@ from pyvis.network import Network
 import tempfile
 import os
 import re
-import traceback
 
 # ---------------------------------------------------------
 # CMU BRAND COLORS & CONFIGURATION
@@ -64,7 +63,7 @@ query_params = st.query_params.to_dict()
 current_page = query_params.get("page", ["home"])[0] if isinstance(query_params.get("page"), list) else query_params.get("page", "home")
 
 # ---------------------------------------------------------
-# 2. OMNI-LOADER ENGINE (FUZZY MATCHING)
+# 2. OMNI-LOADER ENGINE
 # ---------------------------------------------------------
 ALL_FILES = [
     "2024-25_Campaign_Management_1769521985.csv", "2025-26_Campaign_Management_1769522231.csv",
@@ -76,12 +75,10 @@ ALL_FILES = [
 ]
 
 def sanitize_filename(name):
-    """Strips all spaces, dashes, underscores, and lowers case for fuzzy matching."""
     return re.sub(r'[^a-z0-9]', '', name.lower().replace('.csv', '').replace('.xlsx', ''))
 
 @st.cache_data(ttl=60)
 def smart_load(target_name, skiprows=0):
-    """Fuzzy matches filenames across Root and Data directories."""
     sanitized_target = sanitize_filename(target_name)
     search_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__)), os.path.join(os.getcwd(), 'data')]
     
@@ -95,14 +92,14 @@ def smart_load(target_name, skiprows=0):
                             return pd.read_csv(path, skiprows=skiprows)
                         elif f.lower().endswith(('.xls', '.xlsx')):
                             return pd.read_excel(path, skiprows=skiprows)
-                    except Exception:
-                        pass
+                    except Exception: pass
     return None
 
 def find_col(df, aliases):
     if df is None or df.empty: return None
     for alias in aliases:
-        if alias in df.columns: return alias
+        for col in df.columns:
+            if alias.lower() in str(col).lower(): return col
     return None
 
 def clean_num(series):
@@ -113,60 +110,55 @@ def normalize_key(series):
 
 @st.cache_data
 def build_master_hub():
-    """Agent 2 (Alchemist) Synthesis extracting strictly from available files with DEFENSIVE math."""
+    """Agent 2 (Alchemist) Synthesis using OUTER JOIN logic to preserve unmapped data."""
     try:
         # Load Index safely
         idx = smart_load('ucmcampaignindex')
         if idx is not None and not idx.empty:
-            utm_col = find_col(idx, ['UTM campaign', 'Campaign_ID', 'UTM_Combined_ID', 'Landing Page (UTM)'])
+            utm_col = find_col(idx, ['utm campaign', 'campaign_id', 'utm_combined_id'])
             idx['utm_clean'] = normalize_key(idx[utm_col]) if utm_col else ""
-            if 'Category' not in idx.columns: idx['Category'] = "Uncategorized"
+            cat_col = find_col(idx, ['tactic/category', 'category'])
+            idx['Category'] = idx[cat_col].fillna("Uncategorized") if cat_col else "Uncategorized"
+            idx = idx[['utm_clean', 'Category']].drop_duplicates(subset=['utm_clean'])
         else:
-            st.session_state['alchemist_error'] = "Index file 'UCM Campaign Index' was not found or is empty."
-            return pd.DataFrame()
+            idx = pd.DataFrame(columns=['utm_clean', 'Category'])
 
         # GAds Pipeline
         g_dfs, v_dfs = [], []
         for f in ['gadsfy25totals', 'gadsfy26totals', 'gadsfy24fy26monthlyweeklyperformance']:
             df = smart_load(f)
             if df is not None and not df.empty:
-                g_key = find_col(df, ['Ad name', 'Campaign', 'Campaign Name'])
+                g_key = find_col(df, ['ad name', 'campaign'])
                 if g_key:
                     df['utm_clean'] = normalize_key(df[g_key])
-                    if find_col(df, ['Cost', 'Spend']):
-                        df['Cost'] = clean_num(df[find_col(df, ['Cost', 'Spend'])])
+                    cost_col = find_col(df, ['cost', 'spend'])
+                    if cost_col:
+                        df['Cost'] = clean_num(df[cost_col])
                         g_dfs.append(df[['utm_clean', 'Cost']])
                     
-                    v_cols = {'Video played to 25%': 'V25', 'Video played to 50%': 'V50', 'Video played to 75%': 'V75', 'Video played to 100%': 'V100'}
+                    # Video Data extraction
+                    v_cols = {'video played to 25%': 'V25', 'video played to 50%': 'V50', 'video played to 75%': 'V75', 'video played to 100%': 'V100'}
                     has_video = False
-                    for k, v in v_cols.items():
-                        if k in df.columns:
-                            df[v] = clean_num(df[k])
+                    for search_key, target_col in v_cols.items():
+                        found_col = find_col(df, [search_key])
+                        if found_col:
+                            df[target_col] = clean_num(df[found_col])
                             has_video = True
                     if has_video:
-                        v_dfs.append(df[['utm_clean'] + list(v_cols.values())])
+                        extract_cols = ['utm_clean'] + [v for v in v_cols.values() if v in df.columns]
+                        v_dfs.append(df[extract_cols])
 
-        # Defensive Concat & Groupby (Prevents pandas empty-object crash)
-        if g_dfs:
-            g_concat = pd.concat(g_dfs, ignore_index=True)
-            g_agg = g_concat.groupby('utm_clean').agg(GAds_Spend=('Cost', 'sum')).reset_index() if not g_concat.empty else pd.DataFrame(columns=['utm_clean', 'GAds_Spend'])
-        else:
-            g_agg = pd.DataFrame(columns=['utm_clean', 'GAds_Spend'])
-
-        if v_dfs:
-            v_concat = pd.concat(v_dfs, ignore_index=True)
-            v_agg = v_concat.groupby('utm_clean').mean().reset_index() if not v_concat.empty else pd.DataFrame()
-        else:
-            v_agg = pd.DataFrame()
+        g_agg = pd.concat(g_dfs, ignore_index=True).groupby('utm_clean').agg(GAds_Spend=('Cost', 'sum')).reset_index() if g_dfs else pd.DataFrame(columns=['utm_clean', 'GAds_Spend'])
+        v_agg = pd.concat(v_dfs, ignore_index=True).groupby('utm_clean').mean().reset_index() if v_dfs else pd.DataFrame()
 
         # LinkedIn Pipeline
         li_agg = pd.DataFrame(columns=['utm_clean', 'LI_Spend'])
         li = smart_load('linkedinadperformance')
         if li is not None and not li.empty:
-            li_key = find_col(li, ['Campaign Name', 'Campaign'])
+            li_key = find_col(li, ['campaign name', 'campaign'])
             if li_key:
                 li['utm_clean'] = normalize_key(li[li_key])
-                li_spend = find_col(li, ['Total Spend', 'Spend', 'Cost'])
+                li_spend = find_col(li, ['total spend', 'spend', 'cost'])
                 li['LI_Spend'] = clean_num(li[li_spend]) if li_spend else 0.0
                 li_agg = li.groupby('utm_clean').agg(LI_Spend=('LI_Spend', 'sum')).reset_index()
 
@@ -175,52 +167,47 @@ def build_master_hub():
         for f in ['gafy25utmtotals', 'gafy26utmtotals']:
             _df = smart_load(f, skiprows=0) 
             if _df is not None and not _df.empty:
-                if 'Session campaign' not in _df.columns and len(_df) > 1:
-                    _df.columns = [str(c) for c in _df.iloc[0]] # Safe column reassignment
+                if 'session campaign' not in str(_df.columns).lower() and len(_df) > 1:
+                    _df.columns = [str(c) for c in _df.iloc[0]] 
                     _df = _df[1:]
                     
-                ga_key = find_col(_df, ['Session campaign', 'Campaign'])
+                ga_key = find_col(_df, ['session campaign', 'campaign'])
                 if ga_key:
                     _df['utm_clean'] = normalize_key(_df[ga_key])
-                    u_col = find_col(_df, ['Total users', 'Users'])
-                    e_col = find_col(_df, ['Engagement rate'])
-                    d_col = find_col(_df, ['Average session duration'])
+                    u_col = find_col(_df, ['total users', 'users'])
+                    e_col = find_col(_df, ['engagement rate'])
+                    d_col = find_col(_df, ['average session duration', 'duration'])
                     
                     _df['Total_Users'] = clean_num(_df[u_col]) if u_col else 0.0
                     _df['Engagement_Rate'] = clean_num(_df[e_col]) if e_col else 0.0
                     _df['Session_Duration'] = clean_num(_df[d_col]) if d_col else 0.0
                     ga_dfs.append(_df[['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration']])
                     
-        if ga_dfs:
-            ga_concat = pd.concat(ga_dfs, ignore_index=True)
-            ga_agg = ga_concat.groupby('utm_clean').agg(Total_Users=('Total_Users', 'sum'), Engagement_Rate=('Engagement_Rate', 'mean'), Session_Duration=('Session_Duration', 'mean')).reset_index() if not ga_concat.empty else pd.DataFrame(columns=['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration'])
-        else:
-            ga_agg = pd.DataFrame(columns=['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration'])
+        ga_agg = pd.concat(ga_dfs, ignore_index=True).groupby('utm_clean').agg(Total_Users=('Total_Users', 'sum'), Engagement_Rate=('Engagement_Rate', 'mean'), Session_Duration=('Session_Duration', 'mean')).reset_index() if ga_dfs else pd.DataFrame(columns=['utm_clean', 'Total_Users', 'Engagement_Rate', 'Session_Duration'])
 
-        # Master Synthesis Join
-        hub = idx if not idx.empty else pd.DataFrame(columns=['utm_clean'])
-        hub = pd.merge(hub, ga_agg, on='utm_clean', how='left')
-        hub = pd.merge(hub, g_agg, on='utm_clean', how='left')
-        hub = pd.merge(hub, li_agg, on='utm_clean', how='left')
+        # OUTER JOIN SYNTHESIS (Keeps all data even if Index mapping fails)
+        hub = pd.merge(ga_agg, g_agg, on='utm_clean', how='outer')
+        hub = pd.merge(hub, li_agg, on='utm_clean', how='outer')
         if not v_agg.empty: hub = pd.merge(hub, v_agg, on='utm_clean', how='left')
-            
-        # DEFENSIVE MATH (Prevents KeyError if a merge failed to find overlapping columns)
+        
+        # Bring in Category from Index
+        hub = pd.merge(hub, idx, on='utm_clean', how='left')
+        
+        # Cleanup
+        hub['utm_clean'].replace('', np.nan, inplace=True)
+        hub = hub.dropna(subset=['utm_clean'])
+        
+        hub['Category'] = hub['Category'].fillna("Orphaned / Uncategorized")
         hub['GAds_Spend'] = pd.to_numeric(hub.get('GAds_Spend', 0.0), errors='coerce').fillna(0.0)
         hub['LI_Spend'] = pd.to_numeric(hub.get('LI_Spend', 0.0), errors='coerce').fillna(0.0)
         hub['Total_Users'] = pd.to_numeric(hub.get('Total_Users', 0.0), errors='coerce').fillna(0.0)
         
         hub['Total_Spend'] = hub['GAds_Spend'] + hub['LI_Spend']
         hub['CPWU'] = hub['Total_Spend'].div(hub['Total_Users'].replace(0, np.nan)).fillna(0.0)
-        hub['Vendor'] = np.where(hub['GAds_Spend'] > hub['LI_Spend'], 'Google Ads', np.where(hub['LI_Spend'] > 0, 'LinkedIn', 'Organic/Other'))
+        hub['Vendor'] = np.where(hub['GAds_Spend'] > 0, 'Google Ads', np.where(hub['LI_Spend'] > 0, 'LinkedIn', 'Organic/Other'))
         
-        # Clear any old errors
-        if 'alchemist_error' in st.session_state: del st.session_state['alchemist_error']
         return hub
-        
-    except Exception as e:
-        # CAPTURES EXACT ERROR FOR DIAGNOSTICS
-        st.session_state['alchemist_error'] = traceback.format_exc()
-        return pd.DataFrame()
+    except Exception as e: return pd.DataFrame()
 
 @st.cache_data
 def load_timeseries_data():
@@ -229,16 +216,16 @@ def load_timeseries_data():
         for f in ['gafy25timeseries', 'gafy26timeseries']:
             df = smart_load(f, skiprows=0)
             if df is not None and not df.empty:
-                if 'Date' not in df.columns and len(df) > 1:
+                if 'date' not in str(df.columns).lower() and len(df) > 1:
                     df.columns = [str(c) for c in df.iloc[0]]
                     df = df[1:]
                 ts_dfs.append(df)
                 
         if ts_dfs:
             ts = pd.concat(ts_dfs, ignore_index=True)
-            date_col = find_col(ts, ['Date', 'Day', 'Day Index'])
-            s_col = find_col(ts, ['Sessions', 'sessions'])
-            u_col = find_col(ts, ['Total users', 'Users'])
+            date_col = find_col(ts, ['date', 'day', 'day index'])
+            s_col = find_col(ts, ['sessions'])
+            u_col = find_col(ts, ['total users', 'users'])
             if date_col and s_col and u_col:
                 ts['day'] = ts[date_col].astype(str)
                 ts['sessions'] = clean_num(ts[s_col])
@@ -387,8 +374,8 @@ elif current_page == "explorer":
             else:
                 idx_df = smart_load('ucmcampaignindex')
                 if idx_df is not None and not idx_df.empty:
-                    idx_keys = set(normalize_key(idx_df[find_col(idx_df, ['UTM campaign', 'Campaign_ID'])]).tolist())
-                    t_key = find_col(df, ['Ad name', 'Campaign', 'Session campaign'])
+                    idx_keys = set(normalize_key(idx_df[find_col(idx_df, ['utm campaign', 'campaign_id'])]).tolist())
+                    t_key = find_col(df, ['ad name', 'campaign', 'session campaign'])
                     if t_key:
                         orphans = list(set(normalize_key(df[t_key]).tolist()) - idx_keys)
                         orphans = [o for o in orphans if o and o != 'nan']
@@ -410,23 +397,21 @@ elif current_page == "cleaner":
 
     st.markdown("""
     <div class="console-card">
-        <h3 style="margin-top: 0;">The Synthesis Engine</h3>
+        <h3 style="margin-top: 0;">The Synthesis Engine (Outer Join Override)</h3>
         <p style="margin-bottom: 0;">
-        <strong>1. Standardization:</strong> Aggressively cleans financial fields, removing currency symbols, and enforcing strict numeric arrays.<br>
-        <strong>2. Normalization:</strong> Strips special characters and unifies casing to create a flawless <code>utm_clean</code> primary key for SQL-style LEFT JOINS.
+        <strong>1. God-Mode Merge:</strong> Executing an OUTER JOIN. Even if campaigns from Google/LinkedIn do NOT match the Index, they are retained and tagged as "Orphaned" so no data is dropped.<br>
+        <strong>2. Normalization:</strong> Strips special characters and unifies casing to create a flawless <code>utm_clean</code> primary key for SQL-style merges.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("<div class='console-card'>", unsafe_allow_html=True)
     if not master_df.empty:
-        st.success(f"✅ Master Hub Synthesized. {len(master_df)} campaigns merged dynamically from root files.")
+        total_spend = master_df['Total_Spend'].sum()
+        st.success(f"✅ Master Hub Synthesized using Outer Join. {len(master_df)} campaigns merged. ${total_spend:,.2f} Total Spend recovered.")
         st.dataframe(master_df, use_container_width=True)
     else:
-        st.error("Alchemist failed to synthesize.")
-        if 'alchemist_error' in st.session_state:
-            st.markdown("### 🛑 Fatal Pandas Exception Detected:")
-            st.code(st.session_state['alchemist_error'], language='python')
+        st.error("Alchemist failed to synthesize. Please ensure raw CSVs are present in the repository.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ======================= AGENT 3: QUANTITATIVE STRATEGIST =======================
@@ -455,7 +440,7 @@ elif current_page == "analysis":
             c3.metric("Cost per Acquired User (Avg)", f"${valid_spend['CPWU'].mean():.2f}")
             
             st.markdown("<div class='console-card'><h3>Spend vs Users (Efficiency Frontier)</h3>", unsafe_allow_html=True)
-            fig_s = px.scatter(valid_spend, x="Total_Spend", y="Total_Users", color="Category", trendline="ols")
+            fig_s = px.scatter(valid_spend, x="Total_Spend", y="Total_Users", color="Category", hover_name="utm_clean", trendline="ols")
             fig_s.update_layout(paper_bgcolor=WHITE, plot_bgcolor=WHITE, font_color="#111111")
             st.plotly_chart(fig_s, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
