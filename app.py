@@ -255,7 +255,7 @@ if current_page == "home":
             padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer;
             transition: 0.3s; pointer-events: auto; text-decoration: none; color: {WHITE}; font-size: 12px;
             box-shadow: 0 4px 15px rgba(196,18,48,0.4); text-transform: uppercase;
-            z-index: 10000; /* Ensures tags are clickable above canvas */
+            z-index: 10000; 
         }}
         .node-label:hover {{ transform: scale(1.1); background: {WHITE}; color: {CMU_RED}; }}
     </style></head>
@@ -301,18 +301,27 @@ if current_page == "home":
         ];
 
         agents.forEach(a => {{
-            const el = document.createElement('a'); 
+            // 1. CHANGED FROM <a> to <div> to bypass raw HTML link handling
+            const el = document.createElement('div'); 
             el.className = 'node-label';
             el.innerText = a.name; 
             
-            // PREVENT CLICK SWALLOWING
+            // 2. STOP ORBIT CONTROLS FROM SWALLOWING THE CLICK
             el.addEventListener('mousedown', (e) => e.stopPropagation());
             el.addEventListener('touchstart', (e) => e.stopPropagation());
-            el.addEventListener('click', (e) => e.stopPropagation());
-
-            // USE PARENT TARGET
-            el.href = "?page=" + a.page_target;
-            el.target = "_parent";
+            
+            // 3. JAVASCRIPT NAVIGATION TRICK TO BYPASS IFRAME RELATIVE URL BUG
+            el.addEventListener('click', (e) => {{
+                e.stopPropagation();
+                try {{
+                    // Update parent URL directly
+                    window.parent.location.search = "?page=" + a.page_target;
+                }} catch (err) {{
+                    // Fallback just in case of cross-origin blocks
+                    console.error("Parent navigation blocked, using fallback.");
+                    window.open("?page=" + a.page_target, "_parent");
+                }}
+            }});
             
             document.body.appendChild(el); a.el = el;
             const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 32, 32), new THREE.MeshPhongMaterial({{color: "{CMU_GREY}", shininess: 100}}));
