@@ -17,12 +17,12 @@ CMU_RED = "#C41230"
 CMU_GREY = "#6D6E71"
 WHITE = "#FFFFFF"
 BLACK = "#0f0f0f" 
-CARD_BG = "#FFFFFF" # Changed to White per your request
+CARD_BG = "#FFFFFF" # Crisp white cards for readability
 TEXT_DARK = "#050505"
 
 st.set_page_config(page_title="CMU Command Center", layout="wide", initial_sidebar_state="collapsed")
 
-# Clean CSS with White Cards & Custom Button Styling
+# Clean CSS with Custom Button Styling
 st.markdown(f"""
 <style>
     .stApp {{ background-color: {BLACK}; color: {WHITE}; }}
@@ -35,18 +35,9 @@ st.markdown(f"""
         border-top: 3px solid {CMU_RED};
     }}
     
-    /* Ensure text inside white cards is dark for readability */
-    .console-card p, .console-card div, .console-card span, .console-card li {{
-        color: {TEXT_DARK} !important;
-    }}
-    .console-card h3, .console-card h4 {{
-        color: {CMU_RED} !important;
-    }}
-    
-    /* Fix Auditor Selectbox Text Color */
-    div[data-baseweb="select"] * {{
-        color: {TEXT_DARK} !important;
-    }}
+    .console-card p, .console-card div, .console-card span, .console-card li {{ color: {TEXT_DARK} !important; }}
+    .console-card h3, .console-card h4 {{ color: {CMU_RED} !important; }}
+    div[data-baseweb="select"] * {{ color: {TEXT_DARK} !important; }}
     
     div[data-testid="stMetricValue"] {{ color: {TEXT_DARK} !important; font-weight: 900; }}
     div[data-testid="stMetricLabel"] {{ color: {CMU_GREY} !important; font-weight: 700; text-transform: uppercase; }}
@@ -56,7 +47,7 @@ st.markdown(f"""
     div.stButton > button {{
         background-color: #222; color: {WHITE}; border: 1px solid #444; border-radius: 8px;
         font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-size: 13px; height: 50px;
-        transition: 0.2s ease-in-out;
+        transition: 0.15s ease-in-out;
     }}
     div.stButton > button:hover {{ background-color: {CMU_RED}; border-color: {CMU_RED}; color: {WHITE} !important; transform: translateY(-2px); }}
     div.stButton > button * {{ color: {WHITE} !important; }}
@@ -65,14 +56,14 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# Navigation State Management
-if "page" not in st.session_state:
-    st.session_state.page = "home"
+# ---------------------------------------------------------
+# ROUTING ENGINE (Reads URL Params for 3D Node Clicks)
+# ---------------------------------------------------------
+current_page = st.query_params.get("page", "home")
 
 def navigate(page_name):
-    st.session_state.page = page_name
-
-current_page = st.session_state.page
+    st.query_params["page"] = page_name
+    st.rerun()
 
 # ---------------------------------------------------------
 # DATA ENGINEERING: THE SPLIT-KEY PIPELINE
@@ -89,7 +80,7 @@ ALL_FILES = [
 def sanitize_filename(name):
     return re.sub(r'[^a-z0-9]', '', name.lower().replace('.csv', '').replace('.xlsx', ''))
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=3600, show_spinner=False)
 def smart_load(target_name, skiprows=0):
     sanitized_target = sanitize_filename(target_name)
     search_dirs = [os.getcwd(), os.path.dirname(os.path.abspath(__file__)), os.path.join(os.getcwd(), 'data')]
@@ -116,7 +107,7 @@ def normalize_key(series):
 def clean_num(series):
     return pd.to_numeric(series.astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce').fillna(0.0)
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def build_master_pipeline():
     try:
         idx_raw = smart_load('ucmcampaignindex')
@@ -154,7 +145,6 @@ def build_master_pipeline():
                     g_df = g_df[~g_df[camp_col].astype(str).str.contains('Total', case=False, na=False)]
                     ext = pd.DataFrame()
                     ext['board_key'] = normalize_key(g_df[camp_col])
-                    
                     cost_col = find_col(g_df, ['cost', 'spend'])
                     clk_col = find_col(g_df, ['clicks'])
                     cpc_col = find_col(g_df, ['avg. cpc', 'cpc'])
@@ -212,7 +202,7 @@ def build_master_pipeline():
     except Exception as e: 
         return pd.DataFrame()
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_timeseries():
     ts1 = smart_load('gafy25timeseries')
     ts2 = smart_load('gafy26timeseries')
@@ -234,7 +224,7 @@ master_df = build_master_pipeline()
 ts_data = load_timeseries()
 
 # ---------------------------------------------------------
-# UI: NATIVE BUTTON NAVIGATION
+# UI: FAST NAVIGATION BUTTONS
 # ---------------------------------------------------------
 nav_cols = st.columns(5)
 if nav_cols[0].button("Nexus", use_container_width=True): navigate("home")
@@ -249,12 +239,12 @@ st.markdown("<hr style='border-color: #333; margin-top: 0px;'>", unsafe_allow_ht
 if current_page == "home":
     st.markdown(f"<h1 style='text-align: center; font-size: 60px; margin-top: 50px;'>CMU COMMAND CENTER</h1>", unsafe_allow_html=True)
     
-    # 3D Galaxy - CMU Text and 4 Tabs
+    # Fully functional Hyperlinked 3D Nodes
     three_js_galaxy = f"""
     <!DOCTYPE html><html><head><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
-        body {{ margin: 0; background: {BLACK}; overflow: hidden; }}
+        body {{ margin: 0; background: {BLACK}; overflow: hidden; font-family: sans-serif; }}
         .node-label {{
             position: absolute; background: rgba(196,18,48,0.9); border: 2px solid {WHITE};
             padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer;
@@ -274,7 +264,6 @@ if current_page == "home":
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); scene.add(ambientLight);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1.2); dirLight.position.set(10, 20, 10); scene.add(dirLight);
 
-        // Background Stars
         const count = 20000; const pos = new Float32Array(count * 3); const colors = new Float32Array(count * 3);
         const cRed = new THREE.Color("{CMU_RED}"); const cGrey = new THREE.Color("{CMU_GREY}"); const cWhite = new THREE.Color("{WHITE}");
         for(let i=0; i<count; i++){{
@@ -289,7 +278,6 @@ if current_page == "home":
         const mat = new THREE.PointsMaterial({{size: 0.08, vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending }});
         scene.add(new THREE.Points(geo, mat));
 
-        // Center CMU Text
         const loader = new THREE.FontLoader();
         loader.load('https://unpkg.com/three@0.128.0/examples/fonts/helvetiker_bold.typeface.json', function (font) {{
             const textGeo = new THREE.TextGeometry('CMU', {{ font: font, size: 4, height: 1, curveSegments: 12, bevelEnabled: true, bevelThickness: 0.1, bevelSize: 0.05 }});
@@ -299,7 +287,7 @@ if current_page == "home":
             scene.add(new THREE.Mesh(textGeo, textMat));
         }});
 
-        // The 4 Specific Tab Nodes
+        // The 4 Specific Tab Nodes explicitly routing via URL params
         const agents = [
             {{name: "Auditor", url: "?page=explorer", pos: [10, 5, 2]}},
             {{name: "Dashboard", url: "?page=dashboard", pos: [-10, -5, 4]}},
@@ -465,8 +453,6 @@ elif current_page == "analysis":
     with c2:
         st.markdown("<div class='console-card'><h3>True Quality: Lowest CPQM</h3>", unsafe_allow_html=True)
         st.markdown("<p style='font-size:12px;'>Cost Per Quality Minute (Spend / Engaged Minutes)</p>", unsafe_allow_html=True)
-        
-        # Lower threshold to populate data
         cpqm_df = master_df.copy()
         if not cpqm_df.empty:
             cpqm_df = cpqm_df.sort_values('CPQM', ascending=True).head(8)
@@ -490,7 +476,7 @@ elif current_page == "analysis":
             if words_data:
                 wd_df = pd.DataFrame(words_data).groupby('Keyword').sum().reset_index()
                 wd_df['CTR'] = wd_df['Clicks'] / wd_df['Impr']
-                wd_df = wd_df[wd_df['Impr'] > 1000].sort_values('CTR', ascending=False).head(8) # Lowered threshold to guarantee population
+                wd_df = wd_df[wd_df['Impr'] > 1000].sort_values('CTR', ascending=False).head(8)
                 st.dataframe(wd_df[['Keyword', 'CTR', 'Clicks', 'Impr']].style.format({'CTR': '{:.2%}', 'Clicks': '{:,.0f}', 'Impr': '{:,.0f}'}), use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
         
